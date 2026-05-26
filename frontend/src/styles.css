@@ -208,6 +208,11 @@ textarea {
   background: #edf2f4;
 }
 
+.guideLink {
+  border: 1px solid #c9d3da;
+  text-decoration: none;
+}
+
 .iconButton {
   width: 36px;
   color: #243540;

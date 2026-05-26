@@ -217,6 +217,10 @@ export function App() {
           <StatusPill label="地图" value={status?.map_api ?? "disabled"} />
           <StatusPill label="今日地图" value={status ? `${status.map_api_calls_today}` : "0"} />
           <StatusPill label="今日Qwen" value={status ? `${status.qwen_calls_today}` : "0"} />
+          <a className="textButton guideLink" href="/flow.html">
+            <FileJson size={18} />
+            <span>方案讲解</span>
+          </a>
           <button className="iconButton" onClick={refreshStatus} title="刷新状态" aria-label="刷新状态">
             <RefreshCw size={18} />
           </button>
