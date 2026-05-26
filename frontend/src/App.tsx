@@ -350,35 +350,42 @@ function formatOutputLine(result: NormalizedAddress) {
 
 function StageHelp() {
   const resultItems = [
-    ["成功", "最终输出可信规范地址"],
-    ["失败", "拒识、错误或无可信地址"],
-    ["来源", "最终采用的候选来源"]
+    ["成功", "可信规范地址"],
+    ["失败", "拒识或错误"],
+    ["来源", "最终候选来源"]
   ];
   const items = [
-    ["召回", "查记忆库、标准库和POI"],
-    ["地图", "调用地图API补召回"],
-    ["MGeo", "拆出城市、道路、门牌、POI"],
-    ["Qwen", "从候选中选择或拒识"],
-    ["直出", "高置信候选跳过模型"],
-    ["拒识", "没有可信规范地址"]
+    ["召回", "库内候选"],
+    ["地图", "API补召回"],
+    ["MGeo", "地址要素拆分"],
+    ["Qwen", "候选择优/拒识"],
+    ["直出", "高置信跳过模型"],
+    ["拒识", "无可信地址"]
   ];
   return (
     <div className="stageHelp">
-      <span className="stageHelpTitle">结果说明</span>
-      {resultItems.map(([label, description]) => (
-        <span className="stageHelpItem" key={label}>
-          <b>{label}</b>
-          <span>{description}</span>
-        </span>
-      ))}
-      <span className="stageHelpDivider" />
-      <span className="stageHelpTitle">阶段说明</span>
-      {items.map(([label, description]) => (
-        <span className="stageHelpItem" key={label}>
-          <b>{label}</b>
-          <span>{description}</span>
-        </span>
-      ))}
+      <div className="stageHelpGroup">
+        <span className="stageHelpTitle">结果说明</span>
+        <div className="stageHelpItems">
+          {resultItems.map(([label, description]) => (
+            <span className="stageHelpItem" key={label}>
+              <b>{label}</b>
+              <span>{description}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="stageHelpGroup">
+        <span className="stageHelpTitle">阶段说明</span>
+        <div className="stageHelpItems">
+          {items.map(([label, description]) => (
+            <span className="stageHelpItem" key={label}>
+              <b>{label}</b>
+              <span>{description}</span>
+            </span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
