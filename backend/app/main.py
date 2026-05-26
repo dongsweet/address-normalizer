@@ -21,6 +21,7 @@ from app.schemas import (
     ApiUsageSummary,
     ConfigStatus,
     ConfirmFeedbackRequest,
+    NormalizedAddress,
     NormalizeBatchRequest,
     NormalizeBatchResponse,
 )
@@ -32,6 +33,8 @@ qwen = QwenClient(settings, db)
 map_client = MapClient(settings, db)
 mgeo = MGeoClient(settings.mgeo_url, settings.mgeo_enabled, settings.mgeo_timeout_seconds)
 agent = AddressAgent(settings, db, qwen, map_client, mgeo)
+AUTO_PERSIST_WARNING = "已自动沉淀到记忆库"
+AUTO_PERSIST_MATCH_LEVELS = {"memory", "standard", "poi"}
 
 
 @asynccontextmanager
@@ -108,6 +111,8 @@ async def normalize_batch(request: NormalizeBatchRequest) -> NormalizeBatchRespo
     async def run_one(index: int, address: str) -> None:
         async with semaphore:
             result = await agent.normalize_one(address, use_qwen=request.use_qwen, use_map_api=request.use_map_api)
+            if request.auto_persist_memory:
+                _try_auto_persist(result)
             results[index] = result
 
     await asyncio.gather(*(run_one(index, address) for index, address in enumerate(addresses)))
@@ -168,6 +173,8 @@ async def normalize_stream(request: NormalizeBatchRequest) -> StreamingResponse:
                         use_map_api=request.use_map_api,
                         progress=publish,
                     )
+                    if request.auto_persist_memory:
+                        _try_auto_persist(result)
                     if job_id:
                         db.save_result(
                             job_id,
@@ -239,6 +246,48 @@ async def normalize_stream(request: NormalizeBatchRequest) -> StreamingResponse:
 def confirm_feedback(request: ConfirmFeedbackRequest) -> dict[str, int]:
     memory_id = db.upsert_memory(request.model_dump(mode="json"))
     return {"memory_id": memory_id}
+
+
+def _try_auto_persist(result: NormalizedAddress) -> bool:
+    if not _should_auto_persist(result):
+        return False
+    try:
+        db.upsert_memory(_memory_payload(result, confirmed_by="auto"))
+    except Exception as exc:  # noqa: BLE001
+        _append_warning(result, f"自动沉淀失败: {exc}")
+        return False
+    _append_warning(result, AUTO_PERSIST_WARNING)
+    return True
+
+
+def _should_auto_persist(result: NormalizedAddress) -> bool:
+    if not result.normalized_address or result.anchor_type == "unmatched" or result.source == "none":
+        return False
+    if result.match_level not in AUTO_PERSIST_MATCH_LEVELS:
+        return False
+    threshold = settings.auto_memory_min_confidence
+    if result.match_level == "memory":
+        threshold = min(threshold, settings.memory_fast_path_score)
+    return result.confidence >= threshold
+
+
+def _memory_payload(result: NormalizedAddress, confirmed_by: str) -> dict[str, Any]:
+    return ConfirmFeedbackRequest(
+        raw_address=result.input,
+        normalized_address=result.normalized_address,
+        components=result.components,
+        anchor_type=result.anchor_type or "business_memory",
+        anchor_id=result.anchor_id,
+        anchor_source=result.source,
+        lon=result.components.get("lon") if isinstance(result.components.get("lon"), (int, float)) else None,
+        lat=result.components.get("lat") if isinstance(result.components.get("lat"), (int, float)) else None,
+        confirmed_by=confirmed_by,
+    ).model_dump(mode="json")
+
+
+def _append_warning(result: NormalizedAddress, warning: str) -> None:
+    if warning not in result.warnings:
+        result.warnings.append(warning)
 
 
 def _effective_concurrency(value: int) -> int:

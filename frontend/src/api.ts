@@ -12,6 +12,7 @@ export async function normalizeBatch(
   addresses: string[],
   useQwen: boolean,
   useMapApi: boolean,
+  autoPersistMemory: boolean,
   concurrency = 2
 ): Promise<NormalizeBatchResponse> {
   const response = await fetch("/api/normalize/batch", {
@@ -21,6 +22,7 @@ export async function normalizeBatch(
       addresses,
       use_qwen: useQwen,
       use_map_api: useMapApi,
+      auto_persist_memory: autoPersistMemory,
       persist_job: true,
       concurrency: concurrency
     })
@@ -36,6 +38,7 @@ export async function normalizeBatchStream(
   addresses: string[],
   useQwen: boolean,
   useMapApi: boolean,
+  autoPersistMemory: boolean,
   concurrency: number,
   onEvent: (event: NormalizeStreamEvent) => void
 ): Promise<void> {
@@ -46,6 +49,7 @@ export async function normalizeBatchStream(
       addresses,
       use_qwen: useQwen,
       use_map_api: useMapApi,
+      auto_persist_memory: autoPersistMemory,
       persist_job: true,
       concurrency: concurrency
     })

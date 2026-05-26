@@ -46,6 +46,7 @@ class NormalizeBatchRequest(BaseModel):
     use_qwen: bool = True
     use_map_api: bool = True
     persist_job: bool = True
+    auto_persist_memory: bool = False
     concurrency: int = Field(default=2, ge=1, le=8)
 
 

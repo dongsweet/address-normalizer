@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     fast_path_gap: float = 0.12
     memory_fast_path_score: float = 0.82
     standard_fast_path_score: float = 0.84
+    auto_memory_min_confidence: float = 0.9
 
     @property
     def cors_origin_list(self) -> list[str]:

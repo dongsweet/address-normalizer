@@ -32,6 +32,8 @@ const SAMPLE_INPUT = [
 ].join("\n");
 
 type ViewMode = "table" | "json" | "lines";
+const AUTO_PERSIST_WARNING = "已自动沉淀到记忆库";
+const MANUAL_PERSIST_WARNING = "已手动沉淀到记忆库";
 
 export function App() {
   const [input, setInput] = useState(SAMPLE_INPUT);
@@ -44,6 +46,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [useQwen, setUseQwen] = useState(true);
   const [useMapApi, setUseMapApi] = useState(true);
+  const [autoPersistMemory, setAutoPersistMemory] = useState(true);
   const [concurrency, setConcurrency] = useState(2);
   const [progressRows, setProgressRows] = useState<RowProgress[]>([]);
 
@@ -62,6 +65,7 @@ export function App() {
   const progressDone = progressRows.filter((row) => row.status === "done" || row.status === "error").length;
   const progressSucceeded = progressRows.filter((row) => row.result && !isUnmatched(row.result)).length;
   const progressFailed = progressRows.filter((row) => isFailedRow(row)).length;
+  const progressPersisted = progressRows.filter((row) => row.result && isPersisted(row.result)).length;
   const outputLines = activeResults.map(formatOutputLine).join("\n");
   const outputJson = JSON.stringify(activeResults, null, 2);
 
@@ -92,7 +96,7 @@ export function App() {
     );
     const streamedResults: NormalizedAddress[] = [];
     try {
-      await normalizeBatchStream(addresses, useQwen, useMapApi, concurrency, (event) => {
+      await normalizeBatchStream(addresses, useQwen, useMapApi, autoPersistMemory, concurrency, (event) => {
         handleStreamEvent(event, streamedResults);
       });
       setResults(streamedResults.filter(Boolean));
@@ -165,17 +169,34 @@ export function App() {
   }
 
   async function saveSelected() {
-    if (!selected) return;
+    if (!selected || isPersisted(selected)) return;
     setBusy(true);
     setError("");
     try {
       await confirmResult(selected);
+      appendPersistWarning(selectedIndex, MANUAL_PERSIST_WARNING);
       await refreshStatus();
     } catch (err) {
       setError(err instanceof Error ? err.message : "沉淀失败");
     } finally {
       setBusy(false);
     }
+  }
+
+  function appendPersistWarning(index: number, warning: string) {
+    setProgressRows((current) =>
+      current.map((row) =>
+        row.index === index && row.result
+          ? {
+              ...row,
+              result: appendWarning(row.result, warning)
+            }
+          : row
+      )
+    );
+    setResults((current) =>
+      current.map((result, currentIndex) => (currentIndex === index ? appendWarning(result, warning) : result))
+    );
   }
 
   return (
@@ -234,6 +255,15 @@ export function App() {
               <input type="checkbox" checked={useMapApi} onChange={(event) => setUseMapApi(event.target.checked)} />
               <span>地图</span>
             </label>
+            <label className="toggle" title="高质量命中自动写入记忆库">
+              <input
+                type="checkbox"
+                checked={autoPersistMemory}
+                onChange={(event) => setAutoPersistMemory(event.target.checked)}
+                disabled={busy}
+              />
+              <span>自动沉淀</span>
+            </label>
             <label className="selectControl">
               <span>并发</span>
               <select value={concurrency} onChange={(event) => setConcurrency(Number(event.target.value))} disabled={busy}>
@@ -267,6 +297,7 @@ export function App() {
                 done={progressDone}
                 succeeded={progressSucceeded}
                 failed={progressFailed}
+                persisted={progressPersisted}
                 busy={busy}
               />
             )}
@@ -289,9 +320,9 @@ export function App() {
               <FileJson size={18} />
               <span>详情</span>
             </div>
-            <button className="textButton" onClick={saveSelected} disabled={!selected || isUnmatched(selected) || busy}>
+            <button className="textButton" onClick={saveSelected} disabled={!selected || isUnmatched(selected) || isPersisted(selected) || busy}>
               <Save size={18} />
-              <span>沉淀</span>
+              <span>{selected ? persistButtonLabel(selected) : "沉淀本条"}</span>
             </button>
           </div>
           {selected ? (
@@ -303,6 +334,7 @@ export function App() {
                 <Meta label="最终来源" value={sourceLabel(selected.source)} />
                 <Meta label="置信度" value={selected.confidence.toFixed(3)} />
                 <Meta label="层级" value={selected.match_level} />
+                <Meta label="沉淀" value={persistStateLabel(selected)} />
                 <Meta label="锚点" value={selected.anchor_id ?? "-"} />
               </div>
               <pre className="codeBlock small">{JSON.stringify(selected, null, 2)}</pre>
@@ -328,6 +360,44 @@ function resultStageLabel(result: NormalizedAddress, fallback: string) {
 
 function isUnmatched(result: NormalizedAddress) {
   return result.anchor_type === "unmatched" || result.source === "none";
+}
+
+function isPersisted(result: NormalizedAddress) {
+  return isAutoPersisted(result) || result.warnings.includes(MANUAL_PERSIST_WARNING);
+}
+
+function isAutoPersisted(result: NormalizedAddress) {
+  return result.warnings.includes(AUTO_PERSIST_WARNING);
+}
+
+function persistStateLabel(result: NormalizedAddress) {
+  if (isAutoPersisted(result)) {
+    return "自动";
+  }
+  if (result.warnings.includes(MANUAL_PERSIST_WARNING)) {
+    return "手动";
+  }
+  return "未沉淀";
+}
+
+function persistButtonLabel(result: NormalizedAddress) {
+  if (isAutoPersisted(result)) {
+    return "已自动沉淀";
+  }
+  if (result.warnings.includes(MANUAL_PERSIST_WARNING)) {
+    return "已手动沉淀";
+  }
+  return "沉淀本条";
+}
+
+function appendWarning(result: NormalizedAddress, warning: string): NormalizedAddress {
+  if (result.warnings.includes(warning)) {
+    return result;
+  }
+  return {
+    ...result,
+    warnings: [...result.warnings, warning]
+  };
 }
 
 function isFailedRow(row: RowProgress) {
@@ -395,12 +465,14 @@ function ProgressSummary({
   done,
   succeeded,
   failed,
+  persisted,
   busy
 }: {
   total: number;
   done: number;
   succeeded: number;
   failed: number;
+  persisted: number;
   busy: boolean;
 }) {
   const percent = total ? Math.round((done / total) * 100) : 0;
@@ -415,6 +487,7 @@ function ProgressSummary({
           {done}/{total}
           {done ? ` · 成功 ${succeeded}` : ""}
           {failed ? ` · 失败 ${failed}` : ""}
+          {persisted ? ` · 沉淀 ${persisted}` : ""}
         </span>
       </div>
       <div className="progressTrack" aria-label="整体进度">
