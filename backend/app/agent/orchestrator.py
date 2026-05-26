@@ -375,6 +375,11 @@ def _merge_input_detail(base_address: str, detail: dict[str, str]) -> str:
     address_detail = detail.get("address_detail")
     if not address_detail:
         return base_address
+
+    base_anchor, base_detail = _split_input_detail(base_address)
+    if base_detail and _details_overlap(base_detail, detail):
+        return f"{base_anchor}{address_detail}"
+
     base_key = _identity_text(base_address)
     if _identity_text(address_detail) in base_key:
         return base_address
@@ -393,6 +398,19 @@ def _merge_input_detail(base_address: str, detail: dict[str, str]) -> str:
         return base_address
     separator = "-" if skipped_existing and remaining_parts else ""
     return f"{base_address}{separator}{remaining_detail}"
+
+
+def _details_overlap(left: dict[str, str], right: dict[str, str]) -> bool:
+    for key in ("building", "unit", "room"):
+        left_value = left.get(key)
+        right_value = right.get(key)
+        if left_value and right_value and _detail_part_key(left_value) == _detail_part_key(right_value):
+            return True
+    return False
+
+
+def _detail_part_key(value: str) -> str:
+    return re.sub(r"(室|房|号房|号)$", "", _identity_text(value))
 
 
 def _map_queries(cleaned: str, mgeo_payload: dict[str, Any] | None, default_city: str) -> list[str]:
