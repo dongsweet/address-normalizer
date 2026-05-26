@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS address_memory_alias (
 
 CREATE INDEX IF NOT EXISTS idx_address_memory_alias_memory_id ON address_memory_alias (memory_id);
 CREATE INDEX IF NOT EXISTS idx_address_memory_alias_text_trgm ON address_memory_alias USING GIN (alias_text gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_memory_alias_text_trgm ON address_memory_alias USING gist (alias_text gist_trgm_ops);
 
 INSERT INTO address_memory_alias (
     memory_id, alias_text, alias_kind, city, district, confirmed_by
@@ -155,6 +156,7 @@ CREATE TABLE IF NOT EXISTS address_detail_memory (
 
 CREATE INDEX IF NOT EXISTS idx_address_detail_memory_id ON address_detail_memory (memory_id);
 CREATE INDEX IF NOT EXISTS idx_address_detail_memory_detail_trgm ON address_detail_memory USING GIN (normalized_detail gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_detail_normalized_trgm ON address_detail_memory USING gist (normalized_detail gist_trgm_ops);
 
 CREATE TABLE IF NOT EXISTS normalization_job (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -391,7 +393,8 @@ class Database:
                 FROM api_call_log
                 WHERE provider = %(provider)s
                     AND timestamp >= %(start_date)s::date
-                    AND timestamp < (%(end_date)s::date + interval '1 day')
+                    AND timestamp < (%(end_date)s::timestamptz + interval '1 day')
+                    AND response_status != 'quota_exceeded'
                 """,
                 {"provider": provider, "start_date": start_date, "end_date": end_date},
             ).fetchone()
@@ -571,6 +574,11 @@ class Database:
             FROM poi_catalog
             WHERE
                 (CAST(%(city)s AS text) IS NULL OR city = CAST(%(city)s AS text) OR city IS NULL)
+                AND (
+                    search_text %% %(query)s
+                    OR name %% %(query)s
+                    OR full_address ILIKE %(like_query)s
+                )
             ORDER BY score DESC, confidence DESC NULLS LAST
             LIMIT %(limit)s
             """,
