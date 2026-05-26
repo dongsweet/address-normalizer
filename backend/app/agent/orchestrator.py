@@ -246,6 +246,7 @@ _BUILDING_TOKEN = r"[A-Za-z0-9一二三四五六七八九十百千万零〇两]+
 _UNIT_TOKEN = r"[A-Za-z0-9一二三四五六七八九十百千万零〇两]+"
 _ROOM_TOKEN = r"[A-Za-z]?\d{2,5}"
 _BUILDING = rf"(?P<building>{_BUILDING_TOKEN}(?:栋|幢|号楼|楼栋|座|#))"
+_GROUND_FLOOR = r"(?P<floor>[0-9一二三四五六七八九十]+(?:楼|层|F|f))"
 _FLOOR = (
     r"(?P<floor>"
     r"(?:-[0-9一二三四五六七八九十]+|负[0-9一二三四五六七八九十]+|地下[0-9一二三四五六七八九十]+)(?:楼|层|F|f)"
@@ -255,7 +256,12 @@ _FLOOR = (
 )
 _UNIT = rf"(?P<unit>{_UNIT_TOKEN})(?:单元|单|门)"
 _ROOM = rf"(?P<room>{_ROOM_TOKEN})(?:室|房|号房|号)?"
+_ROOM_WITH_SUFFIX = r"(?P<room>[A-Za-z]?\d{1,5}(?:室|房|号房|号))"
 _DETAIL_PATTERNS: list[tuple[re.Pattern[str], dict[str, str]]] = [
+    (re.compile(rf"(?P<detail>{_BUILDING}{_UNIT}{_GROUND_FLOOR}{_ROOM_WITH_SUFFIX})$"), {}),
+    (re.compile(rf"(?P<detail>{_BUILDING}{_UNIT}{_GROUND_FLOOR}{_ROOM})$"), {}),
+    (re.compile(rf"(?P<detail>{_BUILDING}{_GROUND_FLOOR}{_ROOM_WITH_SUFFIX})$"), {}),
+    (re.compile(rf"(?P<detail>{_GROUND_FLOOR}{_ROOM_WITH_SUFFIX})$"), {}),
     (re.compile(rf"(?P<detail>{_BUILDING}{_FLOOR}{_UNIT}{_ROOM})$"), {}),
     (re.compile(rf"(?P<detail>{_BUILDING}{_FLOOR}{_ROOM})$"), {}),
     (re.compile(rf"(?P<detail>{_BUILDING}{_FLOOR})$"), {}),
@@ -383,12 +389,13 @@ _CHINESE_DIGITS = {
 def _normalize_floor(value: str | None) -> str | None:
     if not value:
         return None
+    is_basement = bool(re.match(r"^(?:-|负|B|b|地下)", value))
     text = re.sub(r"(楼|层|F|f)$", "", value)
     text = text.replace("地下", "").replace("负", "").replace("-", "").replace("B", "").replace("b", "")
     floor_no = _parse_small_number(text)
     if floor_no is None:
         return None
-    return f"负{floor_no}楼"
+    return f"负{floor_no}楼" if is_basement else f"{floor_no}楼"
 
 
 def _parse_small_number(value: str) -> int | None:
@@ -420,7 +427,9 @@ def _normalize_unit(value: str | None) -> str | None:
 def _normalize_room(value: str | None) -> str | None:
     if not value:
         return None
-    room = re.sub(r"(室|房|号房|号)$", "", value)
+    if value.endswith("号") and not value.endswith("号房"):
+        return f"{value[:-1]}号"
+    room = re.sub(r"(室|房|号房)$", "", value)
     return f"{room}室"
 
 
