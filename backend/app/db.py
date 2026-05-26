@@ -366,22 +366,38 @@ class Database:
             """
             SELECT
                 'memory' AS source,
-                id::text AS candidate_id,
-                NULL::text AS name,
-                normalized_address AS full_address,
-                components->>'province' AS province,
-                components->>'city' AS city,
-                components->>'district' AS district,
-                components->>'town' AS town,
-                NULL::text AS category,
-                lon,
-                lat,
-                GREATEST(similarity(search_text, %(query)s), similarity(normalized_address, %(query)s)) AS score,
+                memory.id::text AS candidate_id,
+                COALESCE(NULLIF(memory.components->>'name', ''), NULLIF(parent.components->>'name', '')) AS name,
+                memory.normalized_address AS full_address,
+                COALESCE(NULLIF(memory.components->>'province', ''), NULLIF(parent.components->>'province', '')) AS province,
+                COALESCE(NULLIF(memory.components->>'city', ''), NULLIF(parent.components->>'city', '')) AS city,
+                COALESCE(NULLIF(memory.components->>'district', ''), NULLIF(parent.components->>'district', '')) AS district,
+                COALESCE(NULLIF(memory.components->>'town', ''), NULLIF(parent.components->>'town', '')) AS town,
+                COALESCE(NULLIF(memory.components->>'category', ''), NULLIF(parent.components->>'category', '')) AS category,
+                memory.lon,
+                memory.lat,
+                GREATEST(
+                    similarity(memory.search_text, %(query)s),
+                    similarity(memory.normalized_address, %(query)s),
+                    similarity(COALESCE(memory.components->>'name', parent.components->>'name', ''), %(query)s)
+                ) AS score,
                 'business-confirmed memory' AS evidence,
-                jsonb_build_object('anchor_type', anchor_type, 'anchor_id', anchor_id, 'hit_count', hit_count) AS metadata
-            FROM address_memory
-            WHERE search_text %% %(query)s OR normalized_address ILIKE %(like_query)s OR raw_address_pattern ILIKE %(like_query)s
-            ORDER BY score DESC, hit_count DESC
+                jsonb_build_object(
+                    'anchor_type', memory.anchor_type,
+                    'anchor_id', memory.anchor_id,
+                    'anchor_source', memory.anchor_source,
+                    'hit_count', memory.hit_count
+                ) AS metadata
+            FROM address_memory AS memory
+            LEFT JOIN address_memory AS parent
+                ON memory.anchor_type = 'memory'
+                AND memory.anchor_id ~ '^[0-9]+$'
+                AND parent.id = memory.anchor_id::bigint
+            WHERE
+                memory.search_text %% %(query)s
+                OR memory.normalized_address ILIKE %(like_query)s
+                OR memory.raw_address_pattern ILIKE %(like_query)s
+            ORDER BY score DESC, memory.hit_count DESC
             LIMIT %(limit)s
             """,
             query,
@@ -470,10 +486,13 @@ class Database:
             for part in [
                 payload.get("raw_address"),
                 payload.get("normalized_address"),
+                components.get("name"),
+                components.get("category"),
                 components.get("province"),
                 components.get("city"),
                 components.get("district"),
                 components.get("town"),
+                components.get("address_detail"),
             ]
             if part
         )
