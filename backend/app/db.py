@@ -371,6 +371,16 @@ class Database:
                 CASE
                     WHEN
                         NULLIF(memory.components->>'address_detail', '') IS NOT NULL
+                        AND COALESCE(NULLIF(memory.components->>'name', ''), NULLIF(parent.components->>'name', '')) IS NOT NULL
+                        AND POSITION(COALESCE(NULLIF(memory.components->>'name', ''), NULLIF(parent.components->>'name', '')) IN memory.normalized_address) > 0
+                    THEN LEFT(
+                        memory.normalized_address,
+                        POSITION(COALESCE(NULLIF(memory.components->>'name', ''), NULLIF(parent.components->>'name', '')) IN memory.normalized_address)
+                            + LENGTH(COALESCE(NULLIF(memory.components->>'name', ''), NULLIF(parent.components->>'name', '')))
+                            - 1
+                    )
+                    WHEN
+                        NULLIF(memory.components->>'address_detail', '') IS NOT NULL
                         AND RIGHT(memory.normalized_address, LENGTH(memory.components->>'address_detail')) = memory.components->>'address_detail'
                     THEN LEFT(memory.normalized_address, LENGTH(memory.normalized_address) - LENGTH(memory.components->>'address_detail'))
                     ELSE memory.normalized_address
