@@ -103,6 +103,37 @@ CREATE TABLE IF NOT EXISTS address_memory (
 CREATE INDEX IF NOT EXISTS idx_address_memory_geom ON address_memory USING GIST (geom);
 CREATE INDEX IF NOT EXISTS idx_address_memory_search_trgm ON address_memory USING GIN (search_text gin_trgm_ops);
 
+CREATE TABLE IF NOT EXISTS address_memory_alias (
+    id BIGSERIAL PRIMARY KEY,
+    memory_id BIGINT NOT NULL REFERENCES address_memory(id) ON DELETE CASCADE,
+    alias_text TEXT NOT NULL,
+    alias_kind TEXT NOT NULL DEFAULT 'observed',
+    city TEXT,
+    district TEXT,
+    confirmed_by TEXT,
+    confirmed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    hit_count INTEGER NOT NULL DEFAULT 1,
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (memory_id, alias_text)
+);
+
+CREATE INDEX IF NOT EXISTS idx_address_memory_alias_memory_id ON address_memory_alias (memory_id);
+CREATE INDEX IF NOT EXISTS idx_address_memory_alias_text_trgm ON address_memory_alias USING GIN (alias_text gin_trgm_ops);
+
+INSERT INTO address_memory_alias (
+    memory_id, alias_text, alias_kind, city, district, confirmed_by
+)
+SELECT memory.id, aliases.alias_text, 'backfill', memory.city, memory.district, memory.confirmed_by
+FROM address_memory AS memory
+CROSS JOIN LATERAL (
+    VALUES
+        (NULLIF(BTRIM(memory.raw_address_pattern), '')),
+        (NULLIF(BTRIM(memory.normalized_address), '')),
+        (NULLIF(BTRIM(memory.components->>'name'), ''))
+) AS aliases(alias_text)
+WHERE aliases.alias_text IS NOT NULL
+ON CONFLICT (memory_id, alias_text) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS address_detail_memory (
     id BIGSERIAL PRIMARY KEY,
     memory_id BIGINT NOT NULL REFERENCES address_memory(id) ON DELETE CASCADE,
@@ -268,6 +299,7 @@ class Database:
                 SELECT
                     (SELECT count(*) FROM poi_catalog)::int AS poi_rows,
                     (SELECT count(*) FROM address_memory)::int AS memory_rows,
+                    (SELECT count(*) FROM address_memory_alias)::int AS memory_alias_rows,
                     (SELECT count(*) FROM address_detail_memory)::int AS memory_detail_rows,
                     (SELECT count(*) FROM standard_address)::int AS standard_rows
                 """
@@ -419,24 +451,58 @@ class Database:
                 GREATEST(
                     similarity(memory.search_text, %(query)s),
                     similarity(memory.normalized_address, %(query)s),
-                    similarity(COALESCE(memory.components->>'name', parent.components->>'name', ''), %(query)s)
+                    similarity(memory.raw_address_pattern, %(query)s),
+                    similarity(COALESCE(memory.components->>'name', parent.components->>'name', ''), %(query)s),
+                    CASE WHEN memory.raw_address_pattern = %(query)s THEN 0.96 ELSE 0 END,
+                    CASE WHEN POSITION(memory.raw_address_pattern IN %(query)s) > 0 THEN 0.86 ELSE 0 END,
+                    COALESCE(alias_match.score, 0)
                 ) AS score,
-                'business-confirmed memory' AS evidence,
+                CASE
+                    WHEN alias_match.alias_text IS NOT NULL THEN 'business-confirmed memory alias'
+                    ELSE 'business-confirmed memory'
+                END AS evidence,
                 jsonb_build_object(
                     'anchor_type', memory.anchor_type,
                     'anchor_id', memory.anchor_id,
                     'anchor_source', memory.anchor_source,
                     'stored_normalized_address', memory.normalized_address,
-                    'hit_count', memory.hit_count
+                    'hit_count', memory.hit_count,
+                    'matched_alias', alias_match.alias_text,
+                    'alias_kind', alias_match.alias_kind,
+                    'alias_hit_count', alias_match.hit_count
                 ) AS metadata
             FROM address_memory AS memory
             LEFT JOIN address_memory AS parent
                 ON memory.anchor_type = 'memory'
                 AND parent.id::text = memory.anchor_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    alias.alias_text,
+                    alias.alias_kind,
+                    alias.hit_count,
+                    GREATEST(
+                        similarity(alias.alias_text, %(query)s),
+                        CASE WHEN alias.alias_text = %(query)s THEN 0.98 ELSE 0 END,
+                        CASE WHEN POSITION(alias.alias_text IN %(query)s) > 0 THEN 0.92 ELSE 0 END,
+                        CASE WHEN alias.alias_text ILIKE %(like_query)s THEN 0.88 ELSE 0 END
+                    ) AS score
+                FROM address_memory_alias AS alias
+                WHERE
+                    alias.memory_id = memory.id
+                    AND (
+                        alias.alias_text %% %(query)s
+                        OR alias.alias_text ILIKE %(like_query)s
+                        OR POSITION(alias.alias_text IN %(query)s) > 0
+                    )
+                ORDER BY score DESC, alias.hit_count DESC
+                LIMIT 1
+            ) AS alias_match ON TRUE
             WHERE
                 memory.search_text %% %(query)s
                 OR memory.normalized_address ILIKE %(like_query)s
                 OR memory.raw_address_pattern ILIKE %(like_query)s
+                OR POSITION(memory.raw_address_pattern IN %(query)s) > 0
+                OR alias_match.alias_text IS NOT NULL
             ORDER BY score DESC, memory.hit_count DESC
             LIMIT %(limit)s
             """,
@@ -646,6 +712,13 @@ class Database:
                 },
                 ).fetchone()
             memory_id = int(row["id"])
+            self._upsert_memory_aliases(
+                conn,
+                memory_id=memory_id,
+                aliases=_memory_alias_entries(raw_address, normalized_address, anchor_components),
+                components=anchor_components,
+                confirmed_by=payload.get("confirmed_by"),
+            )
             if detail_components:
                 self._upsert_detail_memory(
                     conn,
@@ -658,6 +731,45 @@ class Database:
                 )
             conn.commit()
         return memory_id
+
+    def _upsert_memory_aliases(
+        self,
+        conn: psycopg.Connection[Any],
+        *,
+        memory_id: int,
+        aliases: list[tuple[str, str]],
+        components: dict[str, Any],
+        confirmed_by: Any,
+    ) -> None:
+        for alias_text, alias_kind in aliases:
+            conn.execute(
+                """
+                INSERT INTO address_memory_alias (
+                    memory_id, alias_text, alias_kind, city, district, confirmed_by
+                )
+                VALUES (
+                    %(memory_id)s, %(alias_text)s, %(alias_kind)s, %(city)s, %(district)s, %(confirmed_by)s
+                )
+                ON CONFLICT (memory_id, alias_text) DO UPDATE SET
+                    alias_kind = CASE
+                        WHEN address_memory_alias.alias_kind = 'observed' THEN address_memory_alias.alias_kind
+                        ELSE EXCLUDED.alias_kind
+                    END,
+                    hit_count = address_memory_alias.hit_count + 1,
+                    last_seen_at = now(),
+                    city = EXCLUDED.city,
+                    district = EXCLUDED.district,
+                    confirmed_by = EXCLUDED.confirmed_by
+                """,
+                {
+                    "memory_id": memory_id,
+                    "alias_text": alias_text,
+                    "alias_kind": alias_kind,
+                    "city": components.get("city"),
+                    "district": components.get("district"),
+                    "confirmed_by": confirmed_by,
+                },
+            )
 
     def _upsert_detail_memory(
         self,
@@ -828,6 +940,36 @@ def _strip_raw_detail(raw_address: str, components: dict[str, Any]) -> str | Non
         anchor = raw_address[: -len(suffix)].rstrip("-_/\\|:：#")
         return anchor or None
     return None
+
+
+def _memory_alias_entries(raw_address: str, normalized_address: str, components: dict[str, Any]) -> list[tuple[str, str]]:
+    entries = [
+        (raw_address, "observed"),
+        (_text_or_none(components.get("name")), "name"),
+        (normalized_address, "normalized"),
+    ]
+    aliases: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for value, alias_kind in entries:
+        alias_text = _clean_alias_text(value)
+        if not alias_text or alias_text in seen:
+            continue
+        seen.add(alias_text)
+        aliases.append((alias_text, alias_kind))
+    return aliases
+
+
+def _clean_alias_text(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    text = text.replace("－", "-").replace("—", "-").replace("～", "-")
+    text = re.sub(r"[\s,，。;；]+", "", text).strip("-_/\\|:：#")
+    if len(text) < 2:
+        return None
+    return text
 
 
 def _text_or_none(value: Any) -> str | None:

@@ -74,6 +74,7 @@ class ConfigStatus(BaseModel):
     standard_address: str
     poi_rows: int
     memory_rows: int
+    memory_alias_rows: int = 0
     memory_detail_rows: int = 0
     default_city: str
     map_api_calls_today: int = 0

@@ -104,6 +104,7 @@ export interface ConfigStatus {
   standard_address: string;
   poi_rows: number;
   memory_rows: number;
+  memory_alias_rows: number;
   memory_detail_rows: number;
   default_city: string;
   map_api_calls_today: number;
