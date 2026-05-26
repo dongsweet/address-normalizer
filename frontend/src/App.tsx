@@ -393,12 +393,25 @@ function ProgressSummary({
 function StatusPill({ label, value }: { label: string; value: string }) {
   const good = ["configured", "ok"].includes(value) || /^\d+$/.test(value);
   const missing = ["missing", "disabled", "unavailable", "unknown"].includes(value);
+  const displayValue = statusDisplayValue(value);
   return (
-    <span className={`statusPill ${good ? "good" : ""} ${missing ? "muted" : ""}`}>
+    <span className={`statusPill ${good ? "good" : ""} ${missing ? "muted" : ""}`} title={`${label}: ${value}`}>
       <b>{label}</b>
-      <span>{value}</span>
+      <span>{displayValue}</span>
     </span>
   );
+}
+
+function statusDisplayValue(value: string) {
+  const labels: Record<string, string> = {
+    configured: "已配",
+    disabled: "关闭",
+    missing: "缺失",
+    unavailable: "不可用",
+    unknown: "未知",
+    ok: "正常"
+  };
+  return labels[value] ?? value;
 }
 
 function TabButton({
