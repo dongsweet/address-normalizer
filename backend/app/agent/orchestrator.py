@@ -343,7 +343,7 @@ def _normalize_detail_match(match: re.Match[str], defaults: dict[str, str]) -> d
     if not unit and defaults.get("default_unit") and room:
         unit = _normalize_unit(defaults["default_unit"])
 
-    parts = [part for part in [building, floor, unit, room] if part]
+    parts = [part for part in [building, unit, floor, room] if part]
     if not parts:
         return {}
     parsed: dict[str, str] = {}
@@ -454,7 +454,7 @@ def _merge_input_detail(base_address: str, detail: dict[str, str]) -> str:
 
     remaining_parts = [
         part
-        for part in [detail.get("building"), detail.get("floor"), detail.get("unit"), detail.get("room")]
+        for part in [detail.get("building"), detail.get("unit"), detail.get("floor"), detail.get("room")]
         if part
     ]
     skipped_existing = False
