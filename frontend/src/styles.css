@@ -58,7 +58,7 @@ h1 {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  max-width: 760px;
+  max-width: 900px;
 }
 
 .statusPill {

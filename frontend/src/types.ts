@@ -105,4 +105,6 @@ export interface ConfigStatus {
   poi_rows: number;
   memory_rows: number;
   default_city: string;
+  map_api_calls_today: number;
+  qwen_calls_today: number;
 }

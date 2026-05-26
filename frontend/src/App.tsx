@@ -192,6 +192,8 @@ export function App() {
           <StatusPill label="Qwen" value={status?.qwen ?? "disabled"} />
           <StatusPill label="MGeo" value={status?.mgeo ?? "disabled"} />
           <StatusPill label="地图" value={status?.map_api ?? "disabled"} />
+          <StatusPill label="今日地图" value={status ? `${status.map_api_calls_today}` : "0"} />
+          <StatusPill label="今日Qwen" value={status ? `${status.qwen_calls_today}` : "0"} />
           <button className="iconButton" onClick={refreshStatus} title="刷新状态" aria-label="刷新状态">
             <RefreshCw size={18} />
           </button>
