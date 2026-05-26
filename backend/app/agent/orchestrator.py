@@ -55,11 +55,15 @@ class AddressAgent:
                 warnings=["地址为空或只包含配送备注"],
             )
 
+        recall_query, input_detail = _split_input_detail(cleaned)
+        recall_queries = _unique_texts([cleaned, recall_query])
+
         _emit(progress, "recall", "召回记忆库、标准库和POI候选")
         candidates: list[AddressCandidate] = []
-        candidates.extend(self.db.search_memory(cleaned, self.settings.candidate_limit))
-        candidates.extend(self.db.search_standard(cleaned, self.settings.candidate_limit))
-        candidates.extend(self.db.search_poi(cleaned, self.settings.default_city, self.settings.candidate_limit * 2))
+        for query in recall_queries:
+            candidates.extend(self.db.search_memory(query, self.settings.candidate_limit))
+            candidates.extend(self.db.search_standard(query, self.settings.candidate_limit))
+            candidates.extend(self.db.search_poi(query, self.settings.default_city, self.settings.candidate_limit * 2))
 
         _emit(progress, "rank", "本地候选排序")
         ranked = _rank_unique_candidates(raw_address, cleaned, candidates, self.settings.candidate_limit)
@@ -77,7 +81,7 @@ class AddressAgent:
             _emit(progress, "map_api", "本地候选不足，调用地图API补召回")
             try:
                 map_candidates = await self.map_client.search_many(
-                    _map_queries(cleaned, mgeo_payload, self.settings.default_city),
+                    _map_queries(recall_query or cleaned, mgeo_payload, self.settings.default_city),
                     self.settings.default_city,
                     self.settings.candidate_limit,
                 )
@@ -92,7 +96,7 @@ class AddressAgent:
             warnings.append("高置信候选直接命中，跳过Qwen" if mgeo_payload else "高置信候选直接命中，跳过MGeo和Qwen")
             _emit(progress, "fast_path", "高置信候选直接命中")
             raw_model_output = {"mgeo": mgeo_payload, "qwen": None} if mgeo_payload else None
-            return _selected_result(raw_address, cleaned, fast_path_candidate, ranked, warnings, raw_model_output, None)
+            return _selected_result(raw_address, cleaned, fast_path_candidate, ranked, warnings, raw_model_output, None, input_detail)
 
         if use_qwen and self.settings.qwen_configured and ranked:
             if not mgeo_payload:
@@ -150,7 +154,7 @@ class AddressAgent:
             )
 
         _emit(progress, "done", "完成")
-        return _selected_result(raw_address, cleaned, selected, ranked, warnings, raw_model_output, qwen_output)
+        return _selected_result(raw_address, cleaned, selected, ranked, warnings, raw_model_output, qwen_output, input_detail)
 
 
 def _match_level(candidate: AddressCandidate) -> str:
@@ -226,18 +230,35 @@ def _identity_text(value: str | None) -> str:
     return "".join(re.findall(r"[\u4e00-\u9fffa-zA-Z0-9]+", value or "")).lower()
 
 
-_DETAIL_TOKEN = r"[A-Za-z0-9一二三四五六七八九十百千万零〇两-]+"
-_DETAIL_PATTERNS = [
-    re.compile(
-        rf"(?P<detail>(?P<building>{_DETAIL_TOKEN}(?:栋|幢|号楼|楼栋|楼|座))"
-        rf"(?P<unit>{_DETAIL_TOKEN}单元)?"
-        rf"(?P<room>{_DETAIL_TOKEN}(?:室|房|号房)?)?)$"
-    ),
-    re.compile(
-        rf"(?P<detail>(?P<unit>{_DETAIL_TOKEN}单元)"
-        rf"(?P<room>{_DETAIL_TOKEN}(?:室|房|号房)?)?)$"
-    ),
-    re.compile(rf"(?P<detail>(?P<room>{_DETAIL_TOKEN}(?:室|房|号房)))$"),
+def _unique_texts(values: list[str]) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = value.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        unique.append(normalized)
+    return unique
+
+
+_BUILDING_TOKEN = r"[A-Za-z0-9一二三四五六七八九十百千万零〇两]+"
+_UNIT_TOKEN = r"[A-Za-z0-9一二三四五六七八九十百千万零〇两]+"
+_ROOM_TOKEN = r"[A-Za-z]?\d{2,5}"
+_BUILDING = rf"(?P<building>{_BUILDING_TOKEN}(?:栋|幢|号楼|楼栋|座|#))"
+_UNIT = rf"(?P<unit>{_UNIT_TOKEN})(?:单元|单|门)"
+_ROOM = rf"(?P<room>{_ROOM_TOKEN})(?:室|房|号房|号)?"
+_DETAIL_PATTERNS: list[tuple[re.Pattern[str], dict[str, str]]] = [
+    (re.compile(rf"(?P<detail>{_BUILDING}{_UNIT}{_ROOM})$"), {}),
+    (re.compile(rf"(?P<detail>{_BUILDING}{_UNIT})$"), {}),
+    (re.compile(rf"(?P<detail>{_BUILDING}(?P<unit_hyphen>{_UNIT_TOKEN})[-/]{_ROOM})$"), {}),
+    (re.compile(rf"(?P<detail>{_BUILDING}(?P<unit_alpha>[A-Za-z])(?P<room_alpha>\d{{2,5}})(?:室|房|号房|号)?)$"), {}),
+    (re.compile(rf"(?P<detail>{_BUILDING}{_ROOM})$"), {"default_unit": "1"}),
+    (re.compile(rf"(?P<detail>{_BUILDING})$"), {}),
+    (re.compile(rf"(?P<detail>{_UNIT}{_ROOM})$"), {}),
+    (re.compile(rf"(?P<detail>{_UNIT})$"), {}),
+    (re.compile(rf"(?P<detail>(?P<unit_hyphen>{_UNIT_TOKEN})[-/]{_ROOM})$"), {}),
+    (re.compile(rf"(?P<detail>(?P<room>{_ROOM_TOKEN})(?:室|房|号房))$"), {}),
 ]
 
 
@@ -270,24 +291,84 @@ def _detail_after_anchor(cleaned: str, selected: AddressCandidate) -> str:
 
 
 def _parse_detail(value: str) -> dict[str, str]:
+    _, parsed = _split_input_detail(value)
+    return parsed
+
+
+def _split_input_detail(value: str) -> tuple[str, dict[str, str]]:
     compact = _compact_text(value)
     if not compact:
-        return {}
-    for pattern in _DETAIL_PATTERNS:
+        return "", {}
+    for pattern, defaults in _DETAIL_PATTERNS:
         match = pattern.search(compact)
         if not match:
             continue
-        detail = match.group("detail")
-        if not detail:
-            continue
-        parsed = {key: val for key, val in match.groupdict().items() if key != "detail" and val}
-        parsed["address_detail"] = detail
-        return parsed
-    return {}
+        parsed = _normalize_detail_match(match, defaults)
+        if parsed:
+            return compact[: match.start("detail")], parsed
+    return compact, {}
 
 
 def _compact_text(value: str | None) -> str:
-    return re.sub(r"[\s,，。;；]+", "", value or "")
+    normalized = (value or "").replace("－", "-").replace("—", "-").replace("～", "-")
+    return re.sub(r"[\s,，。;；]+", "", normalized)
+
+
+def _normalize_detail_match(match: re.Match[str], defaults: dict[str, str]) -> dict[str, str]:
+    groups = match.groupdict()
+    building = _normalize_building(groups.get("building"))
+    unit = _normalize_unit(groups.get("unit") or groups.get("unit_hyphen") or groups.get("unit_alpha"))
+    room = _normalize_room(groups.get("room") or _alpha_room(groups.get("unit_alpha"), groups.get("room_alpha")))
+
+    if not unit and defaults.get("default_unit") and room:
+        unit = _normalize_unit(defaults["default_unit"])
+
+    parts = [part for part in [building, unit, room] if part]
+    if not parts:
+        return {}
+    parsed: dict[str, str] = {}
+    if building:
+        parsed["building"] = building
+    if unit:
+        parsed["unit"] = unit
+    if room:
+        parsed["room"] = room
+    parsed["address_detail"] = "-".join(parts)
+    return parsed
+
+
+def _normalize_building(value: str | None) -> str | None:
+    if not value:
+        return None
+    if value.endswith("#"):
+        return f"{value[:-1]}栋"
+    if value.endswith("楼栋"):
+        return f"{value[:-2]}栋"
+    return value
+
+
+def _normalize_unit(value: str | None) -> str | None:
+    if not value:
+        return None
+    token = re.sub(r"(单元|单|门)$", "", value)
+    if len(token) == 1 and token.isalpha():
+        token = str(ord(token.upper()) - ord("A") + 1)
+    elif token.isdigit():
+        token = str(int(token))
+    return f"{token}单元"
+
+
+def _normalize_room(value: str | None) -> str | None:
+    if not value:
+        return None
+    room = re.sub(r"(室|房|号房|号)$", "", value)
+    return f"{room}室"
+
+
+def _alpha_room(unit_alpha: str | None, room_alpha: str | None) -> str | None:
+    if not unit_alpha or not room_alpha:
+        return None
+    return f"{unit_alpha.upper()}{room_alpha}"
 
 
 def _merge_input_detail(base_address: str, detail: dict[str, str]) -> str:
@@ -303,12 +384,15 @@ def _merge_input_detail(base_address: str, detail: dict[str, str]) -> str:
         for part in [detail.get("building"), detail.get("unit"), detail.get("room")]
         if part
     ]
+    skipped_existing = False
     while remaining_parts and _identity_text(remaining_parts[0]) in base_key:
         remaining_parts.pop(0)
-    remaining_detail = "".join(remaining_parts) or address_detail
+        skipped_existing = True
+    remaining_detail = "-".join(remaining_parts) or address_detail
     if _identity_text(remaining_detail) in base_key:
         return base_address
-    return f"{base_address}{remaining_detail}"
+    separator = "-" if skipped_existing and remaining_parts else ""
+    return f"{base_address}{separator}{remaining_detail}"
 
 
 def _map_queries(cleaned: str, mgeo_payload: dict[str, Any] | None, default_city: str) -> list[str]:
@@ -338,6 +422,7 @@ def _selected_result(
     warnings: list[str],
     raw_model_output: dict | None,
     qwen_output: dict | None,
+    input_detail: dict[str, str] | None = None,
 ) -> NormalizedAddress:
     components = {
         "province": selected.province,
@@ -349,7 +434,7 @@ def _selected_result(
         "lon": selected.lon,
         "lat": selected.lat,
     }
-    input_detail = _input_detail(cleaned, selected)
+    input_detail = input_detail or _input_detail(cleaned, selected)
     normalized_address = _merge_input_detail(selected.full_address, input_detail)
     if input_detail:
         components.update(input_detail)
