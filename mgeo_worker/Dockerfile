@@ -1,0 +1,15 @@
+FROM registry.cn-hangzhou.aliyuncs.com/modelscope-repo/modelscope:ubuntu20.04-py37-torch1.11.0-tf1.15.5-1.6.1
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV MODELSCOPE_CACHE=/root/.cache/modelscope
+
+WORKDIR /app
+
+COPY mgeo_worker/requirements.txt /app/requirements.txt
+RUN python -m pip install --no-cache-dir -r /app/requirements.txt
+
+COPY mgeo_worker/app.py /app/app.py
+
+EXPOSE 8090
+CMD ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8090", "--workers", "1"]

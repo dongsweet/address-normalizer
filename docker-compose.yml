@@ -1,0 +1,92 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: address-normalizer-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-address_normalizer}
+      POSTGRES_USER: ${POSTGRES_USER:-address}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-address}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-address} -d ${POSTGRES_DB:-address_normalizer}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: address-normalizer-api
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://address:address@db:5432/address_normalizer}
+      AUTO_INIT_DB: ${AUTO_INIT_DB:-true}
+      AUTO_SEED_PUBLIC_POI: ${AUTO_SEED_PUBLIC_POI:-true}
+      PUBLIC_POI_CSV: ${PUBLIC_POI_CSV:-/app/data/public_poi/urumqi_overture_poi_sample.csv}
+      DEFAULT_CITY: ${DEFAULT_CITY:-乌鲁木齐市}
+      CANDIDATE_LIMIT: ${CANDIDATE_LIMIT:-8}
+      MAX_BATCH_CONCURRENCY: ${MAX_BATCH_CONCURRENCY:-4}
+      FAST_PATH_ENABLED: ${FAST_PATH_ENABLED:-true}
+      FAST_PATH_SCORE: ${FAST_PATH_SCORE:-0.9}
+      FAST_PATH_GAP: ${FAST_PATH_GAP:-0.12}
+      MEMORY_FAST_PATH_SCORE: ${MEMORY_FAST_PATH_SCORE:-0.82}
+      STANDARD_FAST_PATH_SCORE: ${STANDARD_FAST_PATH_SCORE:-0.84}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      QWEN_BASE_URL: ${QWEN_BASE_URL:-}
+      QWEN_API_KEY: ${QWEN_API_KEY:-}
+      QWEN_MODEL: ${QWEN_MODEL:-qwen3.6-27b}
+      MGEO_ENABLED: ${MGEO_ENABLED:-false}
+      MGEO_URL: ${MGEO_URL:-http://mgeo:8090}
+      MGEO_TIMEOUT_SECONDS: ${MGEO_TIMEOUT_SECONDS:-60}
+      MAP_API_ENABLED: ${MAP_API_ENABLED:-false}
+      MAP_PROVIDER: ${MAP_PROVIDER:-none}
+      AMAP_KEY: ${AMAP_KEY:-}
+      BAIDU_AK: ${BAIDU_AK:-}
+      TENCENT_KEY: ${TENCENT_KEY:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  mgeo:
+    profiles:
+      - mgeo
+    build:
+      context: .
+      dockerfile: mgeo_worker/Dockerfile
+    container_name: address-normalizer-mgeo
+    environment:
+      MGEO_MODEL_ID: ${MGEO_MODEL_ID:-iic/mgeo_geographic_elements_tagging_chinese_base}
+      MGEO_MODEL_REVISION: ${MGEO_MODEL_REVISION:-}
+      MGEO_LOAD_ON_STARTUP: ${MGEO_LOAD_ON_STARTUP:-true}
+      MGEO_USE_MODEL: ${MGEO_USE_MODEL:-true}
+      MODELSCOPE_CACHE: ${MODELSCOPE_CACHE:-/root/.cache/modelscope}
+    ports:
+      - "127.0.0.1:8090:8090"
+    volumes:
+      - mgeo_model_cache:/root/.cache/modelscope
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: address-normalizer-frontend
+    environment:
+      VITE_API_PROXY_TARGET: ${VITE_API_PROXY_TARGET:-http://api:8000}
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  mgeo_model_cache:
