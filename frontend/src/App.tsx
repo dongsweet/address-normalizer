@@ -210,6 +210,7 @@ export function App() {
           <StatusPill label="PG" value={status?.database ?? "unknown"} />
           <StatusPill label="POI" value={status ? `${status.poi_rows}` : "0"} />
           <StatusPill label="记忆" value={status ? `${status.memory_rows}` : "0"} />
+          <StatusPill label="明细" value={status ? `${status.memory_detail_rows}` : "0"} />
           <StatusPill label="标准库" value={status?.standard_address ?? "missing"} />
           <StatusPill label="Qwen" value={status?.qwen ?? "disabled"} />
           <StatusPill label="MGeo" value={status?.mgeo ?? "disabled"} />

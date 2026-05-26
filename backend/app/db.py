@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import re
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -101,6 +102,28 @@ CREATE TABLE IF NOT EXISTS address_memory (
 
 CREATE INDEX IF NOT EXISTS idx_address_memory_geom ON address_memory USING GIST (geom);
 CREATE INDEX IF NOT EXISTS idx_address_memory_search_trgm ON address_memory USING GIN (search_text gin_trgm_ops);
+
+CREATE TABLE IF NOT EXISTS address_detail_memory (
+    id BIGSERIAL PRIMARY KEY,
+    memory_id BIGINT NOT NULL REFERENCES address_memory(id) ON DELETE CASCADE,
+    raw_address_pattern TEXT NOT NULL,
+    raw_detail TEXT,
+    normalized_detail TEXT NOT NULL,
+    components JSONB NOT NULL DEFAULT '{}'::jsonb,
+    anchor_type TEXT,
+    anchor_id TEXT,
+    anchor_source TEXT,
+    city TEXT,
+    district TEXT,
+    confirmed_by TEXT,
+    confirmed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    hit_count INTEGER NOT NULL DEFAULT 1,
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (memory_id, raw_address_pattern, normalized_detail)
+);
+
+CREATE INDEX IF NOT EXISTS idx_address_detail_memory_id ON address_detail_memory (memory_id);
+CREATE INDEX IF NOT EXISTS idx_address_detail_memory_detail_trgm ON address_detail_memory USING GIN (normalized_detail gin_trgm_ops);
 
 CREATE TABLE IF NOT EXISTS normalization_job (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -245,6 +268,7 @@ class Database:
                 SELECT
                     (SELECT count(*) FROM poi_catalog)::int AS poi_rows,
                     (SELECT count(*) FROM address_memory)::int AS memory_rows,
+                    (SELECT count(*) FROM address_detail_memory)::int AS memory_detail_rows,
                     (SELECT count(*) FROM standard_address)::int AS standard_rows
                 """
             ).fetchone()
@@ -494,21 +518,24 @@ class Database:
         lon = _float_or_none(payload.get("lon"))
         lat = _float_or_none(payload.get("lat"))
         components = payload.get("components") or {}
+        detail_components = _memory_detail_components(components)
+        anchor_components = _memory_anchor_components(components)
+        normalized_address = _memory_anchor_address(payload.get("normalized_address"), components)
+        raw_address = _memory_anchor_pattern(payload.get("raw_address"), components, normalized_address)
         anchor_type = payload.get("anchor_type")
         anchor_id = payload.get("anchor_id")
         anchor_source = payload.get("anchor_source")
         search_text = " ".join(
             part
             for part in [
-                payload.get("raw_address"),
-                payload.get("normalized_address"),
-                components.get("name"),
-                components.get("category"),
-                components.get("province"),
-                components.get("city"),
-                components.get("district"),
-                components.get("town"),
-                components.get("address_detail"),
+                raw_address,
+                normalized_address,
+                anchor_components.get("name"),
+                anchor_components.get("category"),
+                anchor_components.get("province"),
+                anchor_components.get("city"),
+                anchor_components.get("district"),
+                anchor_components.get("town"),
             ]
             if part
         )
@@ -520,6 +547,58 @@ class Database:
                 anchor_source,
             )
             row = conn.execute(
+                """
+                SELECT id
+                FROM address_memory
+                WHERE normalized_address = %(normalized_address)s
+                ORDER BY hit_count DESC, id
+                LIMIT 1
+                """,
+                {"normalized_address": normalized_address},
+            ).fetchone()
+            if row:
+                row = conn.execute(
+                    """
+                    UPDATE address_memory
+                    SET
+                        raw_address_pattern = CASE
+                            WHEN length(%(raw_address)s) < length(raw_address_pattern) THEN %(raw_address)s
+                            ELSE raw_address_pattern
+                        END,
+                        hit_count = address_memory.hit_count + 1,
+                        last_seen_at = now(),
+                        components = %(components)s,
+                        anchor_type = %(anchor_type)s,
+                        anchor_id = %(anchor_id)s,
+                        anchor_source = %(anchor_source)s,
+                        city = %(city)s,
+                        district = %(district)s,
+                        lon = %(lon)s,
+                        lat = %(lat)s,
+                        geom = CASE
+                            WHEN %(lon)s IS NULL OR %(lat)s IS NULL THEN NULL
+                            ELSE ST_SetSRID(ST_MakePoint(%(lon)s, %(lat)s), 4326)::geography
+                        END,
+                        search_text = %(search_text)s
+                    WHERE id = %(id)s
+                    RETURNING id
+                    """,
+                    {
+                        "id": row["id"],
+                        "raw_address": raw_address,
+                        "components": Jsonb(anchor_components),
+                        "anchor_type": anchor_type,
+                        "anchor_id": anchor_id,
+                        "anchor_source": anchor_source,
+                        "city": anchor_components.get("city"),
+                        "district": anchor_components.get("district"),
+                        "lon": lon,
+                        "lat": lat,
+                        "search_text": search_text,
+                    },
+                ).fetchone()
+            else:
+                row = conn.execute(
                 """
                 INSERT INTO address_memory (
                     raw_address_pattern, normalized_address, components,
@@ -552,22 +631,83 @@ class Database:
                 RETURNING id
                 """,
                 {
-                    "raw_address": payload.get("raw_address"),
-                    "normalized_address": payload.get("normalized_address"),
-                    "components": Jsonb(components),
+                    "raw_address": raw_address,
+                    "normalized_address": normalized_address,
+                    "components": Jsonb(anchor_components),
                     "anchor_type": anchor_type,
                     "anchor_id": anchor_id,
                     "anchor_source": anchor_source,
-                    "city": components.get("city"),
-                    "district": components.get("district"),
+                    "city": anchor_components.get("city"),
+                    "district": anchor_components.get("district"),
                     "lon": lon,
                     "lat": lat,
                     "confirmed_by": payload.get("confirmed_by"),
                     "search_text": search_text,
                 },
-            ).fetchone()
+                ).fetchone()
+            memory_id = int(row["id"])
+            if detail_components:
+                self._upsert_detail_memory(
+                    conn,
+                    memory_id=memory_id,
+                    payload=payload,
+                    detail_components=detail_components,
+                    anchor_type=anchor_type,
+                    anchor_id=anchor_id,
+                    anchor_source=anchor_source,
+                )
             conn.commit()
-        return int(row["id"])
+        return memory_id
+
+    def _upsert_detail_memory(
+        self,
+        conn: psycopg.Connection[Any],
+        *,
+        memory_id: int,
+        payload: dict[str, Any],
+        detail_components: dict[str, Any],
+        anchor_type: Any,
+        anchor_id: Any,
+        anchor_source: Any,
+    ) -> None:
+        raw_address = str(payload.get("raw_address") or "")
+        conn.execute(
+            """
+            INSERT INTO address_detail_memory (
+                memory_id, raw_address_pattern, raw_detail, normalized_detail,
+                components, anchor_type, anchor_id, anchor_source,
+                city, district, confirmed_by
+            )
+            VALUES (
+                %(memory_id)s, %(raw_address)s, %(raw_detail)s, %(normalized_detail)s,
+                %(components)s, %(anchor_type)s, %(anchor_id)s, %(anchor_source)s,
+                %(city)s, %(district)s, %(confirmed_by)s
+            )
+            ON CONFLICT (memory_id, raw_address_pattern, normalized_detail) DO UPDATE SET
+                hit_count = address_detail_memory.hit_count + 1,
+                last_seen_at = now(),
+                components = EXCLUDED.components,
+                anchor_type = EXCLUDED.anchor_type,
+                anchor_id = EXCLUDED.anchor_id,
+                anchor_source = EXCLUDED.anchor_source,
+                city = EXCLUDED.city,
+                district = EXCLUDED.district,
+                confirmed_by = EXCLUDED.confirmed_by
+            """,
+            {
+                "memory_id": memory_id,
+                "raw_address": raw_address,
+                "raw_detail": _memory_raw_detail(raw_address, payload.get("components") or {}),
+                "normalized_detail": detail_components["address_detail"],
+                "components": Jsonb(detail_components),
+                "anchor_type": anchor_type,
+                "anchor_id": anchor_id,
+                "anchor_source": anchor_source,
+                "city": (payload.get("components") or {}).get("city"),
+                "district": (payload.get("components") or {}).get("district"),
+                "confirmed_by": payload.get("confirmed_by"),
+            },
+        )
 
     def _resolve_memory_anchor(
         self,
@@ -610,6 +750,66 @@ class Database:
         with self.connection() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
+
+
+DETAIL_COMPONENT_KEYS = {"building", "unit", "floor", "room", "address_detail"}
+
+
+def _memory_anchor_components(components: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in components.items() if key not in DETAIL_COMPONENT_KEYS}
+
+
+def _memory_detail_components(components: dict[str, Any]) -> dict[str, Any] | None:
+    if not components.get("address_detail"):
+        return None
+    detail = {key: components.get(key) for key in DETAIL_COMPONENT_KEYS if components.get(key)}
+    return detail or None
+
+
+def _memory_anchor_address(normalized_address: Any, components: dict[str, Any]) -> str:
+    address = str(normalized_address or "")
+    if not components.get("address_detail"):
+        return address
+
+    name = _text_or_none(components.get("name"))
+    if name and name in address:
+        return address[: address.find(name) + len(name)]
+
+    detail = _text_or_none(components.get("address_detail"))
+    if detail and address.endswith(detail):
+        return address[: -len(detail)].rstrip("-")
+    return address
+
+
+def _memory_anchor_pattern(raw_address: Any, components: dict[str, Any], fallback: str) -> str:
+    raw = str(raw_address or "").strip()
+    if not components.get("address_detail"):
+        return raw or fallback
+
+    name = _text_or_none(components.get("name"))
+    if name and name in raw:
+        return raw[: raw.find(name) + len(name)]
+    return fallback or raw
+
+
+def _memory_raw_detail(raw_address: str, components: dict[str, Any]) -> str | None:
+    name = _text_or_none(components.get("name"))
+    if name and name in raw_address:
+        detail = raw_address[raw_address.find(name) + len(name) :].strip()
+        return detail or None
+
+    detail = _text_or_none(components.get("address_detail"))
+    if not detail:
+        return None
+    compact_detail = re.sub(r"[-\s]", "", detail)
+    compact_raw = re.sub(r"[-\s]", "", raw_address)
+    return raw_address if compact_detail and compact_detail in compact_raw else None
+
+
+def _text_or_none(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    return str(value)
 
 
 def _float_or_none(value: Any) -> float | None:

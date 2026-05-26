@@ -70,7 +70,7 @@ def config_status() -> ConfigStatus:
         qwen_calls_today = db.get_api_call_count("qwen", today, today)
         database_state = "configured"
     except Exception:  # noqa: BLE001
-        status = {"poi_rows": 0, "memory_rows": 0, "standard_rows": 0}
+        status = {"poi_rows": 0, "memory_rows": 0, "memory_detail_rows": 0, "standard_rows": 0}
         map_api_calls_today = 0
         qwen_calls_today = 0
         database_state = "unavailable"
@@ -82,6 +82,7 @@ def config_status() -> ConfigStatus:
         standard_address="configured" if status.get("standard_rows", 0) else "missing",
         poi_rows=status.get("poi_rows", 0),
         memory_rows=status.get("memory_rows", 0),
+        memory_detail_rows=status.get("memory_detail_rows", 0),
         default_city=settings.default_city,
         map_api_calls_today=map_api_calls_today,
         qwen_calls_today=qwen_calls_today,
