@@ -226,6 +226,91 @@ def _identity_text(value: str | None) -> str:
     return "".join(re.findall(r"[\u4e00-\u9fffa-zA-Z0-9]+", value or "")).lower()
 
 
+_DETAIL_TOKEN = r"[A-Za-z0-9一二三四五六七八九十百千万零〇两-]+"
+_DETAIL_PATTERNS = [
+    re.compile(
+        rf"(?P<detail>(?P<building>{_DETAIL_TOKEN}(?:栋|幢|号楼|楼栋|楼|座))"
+        rf"(?P<unit>{_DETAIL_TOKEN}单元)?"
+        rf"(?P<room>{_DETAIL_TOKEN}(?:室|房|号房)?)?)$"
+    ),
+    re.compile(
+        rf"(?P<detail>(?P<unit>{_DETAIL_TOKEN}单元)"
+        rf"(?P<room>{_DETAIL_TOKEN}(?:室|房|号房)?)?)$"
+    ),
+    re.compile(rf"(?P<detail>(?P<room>{_DETAIL_TOKEN}(?:室|房|号房)))$"),
+]
+
+
+def _input_detail(cleaned: str, selected: AddressCandidate) -> dict[str, str]:
+    tail = _detail_after_anchor(cleaned, selected)
+    if tail:
+        parsed = _parse_detail(tail)
+        if parsed:
+            return parsed
+
+    parsed = _parse_detail(cleaned)
+    if parsed:
+        return parsed
+    return {}
+
+
+def _detail_after_anchor(cleaned: str, selected: AddressCandidate) -> str:
+    for term in [selected.name]:
+        normalized_term = _compact_text(term)
+        if not normalized_term:
+            continue
+        normalized_input = _compact_text(cleaned)
+        index = normalized_input.rfind(normalized_term)
+        if index < 0:
+            continue
+        tail = normalized_input[index + len(normalized_term) :]
+        if tail and len(tail) <= 40:
+            return tail
+    return ""
+
+
+def _parse_detail(value: str) -> dict[str, str]:
+    compact = _compact_text(value)
+    if not compact:
+        return {}
+    for pattern in _DETAIL_PATTERNS:
+        match = pattern.search(compact)
+        if not match:
+            continue
+        detail = match.group("detail")
+        if not detail:
+            continue
+        parsed = {key: val for key, val in match.groupdict().items() if key != "detail" and val}
+        parsed["address_detail"] = detail
+        return parsed
+    return {}
+
+
+def _compact_text(value: str | None) -> str:
+    return re.sub(r"[\s,，。;；]+", "", value or "")
+
+
+def _merge_input_detail(base_address: str, detail: dict[str, str]) -> str:
+    address_detail = detail.get("address_detail")
+    if not address_detail:
+        return base_address
+    base_key = _identity_text(base_address)
+    if _identity_text(address_detail) in base_key:
+        return base_address
+
+    remaining_parts = [
+        part
+        for part in [detail.get("building"), detail.get("unit"), detail.get("room")]
+        if part
+    ]
+    while remaining_parts and _identity_text(remaining_parts[0]) in base_key:
+        remaining_parts.pop(0)
+    remaining_detail = "".join(remaining_parts) or address_detail
+    if _identity_text(remaining_detail) in base_key:
+        return base_address
+    return f"{base_address}{remaining_detail}"
+
+
 def _map_queries(cleaned: str, mgeo_payload: dict[str, Any] | None, default_city: str) -> list[str]:
     queries = [cleaned]
     components = (mgeo_payload or {}).get("components") or {}
@@ -264,6 +349,13 @@ def _selected_result(
         "lon": selected.lon,
         "lat": selected.lat,
     }
+    input_detail = _input_detail(cleaned, selected)
+    normalized_address = _merge_input_detail(selected.full_address, input_detail)
+    if input_detail:
+        components.update(input_detail)
+    if normalized_address != selected.full_address:
+        warnings.append("已保留输入中的楼栋/单元/房号")
+
     match_level = _match_level(selected)
     if qwen_output and qwen_output.get("match_level"):
         match_level = str(qwen_output["match_level"])
@@ -271,8 +363,8 @@ def _selected_result(
     return NormalizedAddress(
         input=raw_address,
         cleaned_input=cleaned,
-        normalized_address=selected.full_address,
-        output_line=selected.full_address,
+        normalized_address=normalized_address,
+        output_line=normalized_address,
         components=components,
         anchor_type=selected.source,
         anchor_id=selected.candidate_id,
