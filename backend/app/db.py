@@ -789,6 +789,9 @@ def _memory_anchor_pattern(raw_address: Any, components: dict[str, Any], fallbac
     name = _text_or_none(components.get("name"))
     if name and name in raw:
         return raw[: raw.find(name) + len(name)]
+    raw_anchor = _strip_raw_detail(raw, components)
+    if raw_anchor:
+        return raw_anchor
     return fallback or raw
 
 
@@ -804,6 +807,27 @@ def _memory_raw_detail(raw_address: str, components: dict[str, Any]) -> str | No
     compact_detail = re.sub(r"[-\s]", "", detail)
     compact_raw = re.sub(r"[-\s]", "", raw_address)
     return raw_address if compact_detail and compact_detail in compact_raw else None
+
+
+def _strip_raw_detail(raw_address: str, components: dict[str, Any]) -> str | None:
+    detail = _text_or_none(components.get("address_detail"))
+    if not raw_address or not detail:
+        return None
+    if raw_address.endswith(detail):
+        anchor = raw_address[: -len(detail)].rstrip("-_/\\|:：#")
+        return anchor or None
+
+    parts = [
+        _text_or_none(components.get("building")),
+        _text_or_none(components.get("unit")),
+        _text_or_none(components.get("floor")),
+        _text_or_none(components.get("room")),
+    ]
+    suffix = "".join(part for part in parts if part)
+    if suffix and raw_address.endswith(suffix):
+        anchor = raw_address[: -len(suffix)].rstrip("-_/\\|:：#")
+        return anchor or None
+    return None
 
 
 def _text_or_none(value: Any) -> str | None:
