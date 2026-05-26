@@ -462,6 +462,9 @@ class Database:
         lon = _float_or_none(payload.get("lon"))
         lat = _float_or_none(payload.get("lat"))
         components = payload.get("components") or {}
+        anchor_type = payload.get("anchor_type")
+        anchor_id = payload.get("anchor_id")
+        anchor_source = payload.get("anchor_source")
         search_text = " ".join(
             part
             for part in [
@@ -475,6 +478,12 @@ class Database:
             if part
         )
         with self.connection() as conn:
+            anchor_type, anchor_id, anchor_source = self._resolve_memory_anchor(
+                conn,
+                anchor_type,
+                anchor_id,
+                anchor_source,
+            )
             row = conn.execute(
                 """
                 INSERT INTO address_memory (
@@ -511,9 +520,9 @@ class Database:
                     "raw_address": payload.get("raw_address"),
                     "normalized_address": payload.get("normalized_address"),
                     "components": Jsonb(components),
-                    "anchor_type": payload.get("anchor_type"),
-                    "anchor_id": payload.get("anchor_id"),
-                    "anchor_source": payload.get("anchor_source"),
+                    "anchor_type": anchor_type,
+                    "anchor_id": anchor_id,
+                    "anchor_source": anchor_source,
                     "city": components.get("city"),
                     "district": components.get("district"),
                     "lon": lon,
@@ -524,6 +533,36 @@ class Database:
             ).fetchone()
             conn.commit()
         return int(row["id"])
+
+    def _resolve_memory_anchor(
+        self,
+        conn: psycopg.Connection[Any],
+        anchor_type: Any,
+        anchor_id: Any,
+        anchor_source: Any,
+    ) -> tuple[Any, Any, Any]:
+        for _ in range(5):
+            if anchor_type != "memory" or not anchor_id or not str(anchor_id).isdigit():
+                break
+            row = conn.execute(
+                """
+                SELECT anchor_type, anchor_id, anchor_source
+                FROM address_memory
+                WHERE id = %(anchor_id)s
+                """,
+                {"anchor_id": anchor_id},
+            ).fetchone()
+            if not row:
+                break
+            next_type = row.get("anchor_type")
+            next_id = row.get("anchor_id")
+            next_source = row.get("anchor_source")
+            if not next_type or (next_type == anchor_type and next_id == anchor_id):
+                break
+            anchor_type = next_type
+            anchor_id = next_id
+            anchor_source = next_source or next_type
+        return anchor_type, anchor_id, anchor_source
 
     def _search(self, sql: str, query: str, limit: int, extra: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         params: dict[str, Any] = {

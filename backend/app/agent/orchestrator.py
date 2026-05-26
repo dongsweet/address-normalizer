@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -61,7 +62,7 @@ class AddressAgent:
         candidates.extend(self.db.search_poi(cleaned, self.settings.default_city, self.settings.candidate_limit * 2))
 
         _emit(progress, "rank", "本地候选排序")
-        ranked = rank_candidates(raw_address, cleaned, candidates, self.settings.candidate_limit)
+        ranked = _rank_unique_candidates(raw_address, cleaned, candidates, self.settings.candidate_limit)
 
         mgeo_payload = None
         if use_map_api and self.settings.map_configured and (not ranked or ranked[0].score < 0.72):
@@ -82,7 +83,7 @@ class AddressAgent:
                 )
                 if not map_candidates:
                     warnings.append("地图API未召回候选")
-                ranked = rank_candidates(raw_address, cleaned, ranked + map_candidates, self.settings.candidate_limit)
+                ranked = _rank_unique_candidates(raw_address, cleaned, ranked + map_candidates, self.settings.candidate_limit)
             except Exception as exc:  # noqa: BLE001
                 warnings.append(f"地图API调用失败: {exc}")
 
@@ -190,6 +191,39 @@ def _fast_path_candidate(ranked: list[AddressCandidate], settings: Settings) -> 
     if top.score >= settings.fast_path_score and top.score - runner_up_score >= settings.fast_path_gap:
         return top
     return None
+
+
+def _rank_unique_candidates(
+    raw_address: str,
+    cleaned: str,
+    candidates: list[AddressCandidate],
+    limit: int,
+) -> list[AddressCandidate]:
+    if not candidates:
+        return []
+    ranked = rank_candidates(raw_address, cleaned, candidates, len(candidates))
+    unique: list[AddressCandidate] = []
+    seen: set[tuple[str, str]] = set()
+    for candidate in ranked:
+        key = _candidate_identity(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(candidate)
+        if len(unique) >= limit:
+            break
+    return unique
+
+
+def _candidate_identity(candidate: AddressCandidate) -> tuple[str, str]:
+    address_key = _identity_text(candidate.full_address)
+    if address_key:
+        return ("address", address_key)
+    return (candidate.source, candidate.candidate_id)
+
+
+def _identity_text(value: str | None) -> str:
+    return "".join(re.findall(r"[\u4e00-\u9fffa-zA-Z0-9]+", value or "")).lower()
 
 
 def _map_queries(cleaned: str, mgeo_payload: dict[str, Any] | None, default_city: str) -> list[str]:
