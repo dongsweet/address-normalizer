@@ -391,8 +391,7 @@ class Database:
             FROM address_memory AS memory
             LEFT JOIN address_memory AS parent
                 ON memory.anchor_type = 'memory'
-                AND memory.anchor_id ~ '^[0-9]+$'
-                AND parent.id = memory.anchor_id::bigint
+                AND parent.id::text = memory.anchor_id
             WHERE
                 memory.search_text %% %(query)s
                 OR memory.normalized_address ILIKE %(like_query)s
