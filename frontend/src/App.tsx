@@ -60,7 +60,8 @@ export function App() {
     : results;
   const selected = progressRows.length ? progressRows[selectedIndex]?.result : results[selectedIndex];
   const progressDone = progressRows.filter((row) => row.status === "done" || row.status === "error").length;
-  const progressFailed = progressRows.filter((row) => row.status === "error").length;
+  const progressSucceeded = progressRows.filter((row) => row.result && !isUnmatched(row.result)).length;
+  const progressFailed = progressRows.filter((row) => isFailedRow(row)).length;
   const outputLines = activeResults.map(formatOutputLine).join("\n");
   const outputJson = JSON.stringify(activeResults, null, 2);
 
@@ -261,7 +262,13 @@ export function App() {
           <div className="resultBody">
             <StageHelp />
             {progressRows.length > 0 && (
-              <ProgressSummary total={progressRows.length} done={progressDone} failed={progressFailed} busy={busy} />
+              <ProgressSummary
+                total={progressRows.length}
+                done={progressDone}
+                succeeded={progressSucceeded}
+                failed={progressFailed}
+                busy={busy}
+              />
             )}
             {viewMode === "table" && (
               <ResultTable
@@ -293,7 +300,7 @@ export function App() {
                 {displayAddress(selected)}
               </div>
               <div className="metaGrid">
-                <Meta label="来源" value={selected.source} />
+                <Meta label="最终来源" value={sourceLabel(selected.source)} />
                 <Meta label="置信度" value={selected.confidence.toFixed(3)} />
                 <Meta label="层级" value={selected.match_level} />
                 <Meta label="锚点" value={selected.anchor_id ?? "-"} />
@@ -323,6 +330,10 @@ function isUnmatched(result: NormalizedAddress) {
   return result.anchor_type === "unmatched" || result.source === "none";
 }
 
+function isFailedRow(row: RowProgress) {
+  return row.status === "error" || Boolean(row.result && isUnmatched(row.result));
+}
+
 function displayAddress(result: NormalizedAddress) {
   if (isUnmatched(result)) {
     return `未匹配：${result.cleaned_input || result.input}`;
@@ -338,6 +349,11 @@ function formatOutputLine(result: NormalizedAddress) {
 }
 
 function StageHelp() {
+  const resultItems = [
+    ["成功", "最终输出可信规范地址"],
+    ["失败", "拒识、错误或无可信地址"],
+    ["来源", "最终采用的候选来源"]
+  ];
   const items = [
     ["召回", "查记忆库、标准库和POI"],
     ["地图", "调用地图API补召回"],
@@ -348,6 +364,14 @@ function StageHelp() {
   ];
   return (
     <div className="stageHelp">
+      <span className="stageHelpTitle">结果说明</span>
+      {resultItems.map(([label, description]) => (
+        <span className="stageHelpItem" key={label}>
+          <b>{label}</b>
+          <span>{description}</span>
+        </span>
+      ))}
+      <span className="stageHelpDivider" />
       <span className="stageHelpTitle">阶段说明</span>
       {items.map(([label, description]) => (
         <span className="stageHelpItem" key={label}>
@@ -362,11 +386,13 @@ function StageHelp() {
 function ProgressSummary({
   total,
   done,
+  succeeded,
   failed,
   busy
 }: {
   total: number;
   done: number;
+  succeeded: number;
   failed: number;
   busy: boolean;
 }) {
@@ -380,6 +406,7 @@ function ProgressSummary({
         </div>
         <span className="count">
           {done}/{total}
+          {done ? ` · 成功 ${succeeded}` : ""}
           {failed ? ` · 失败 ${failed}` : ""}
         </span>
       </div>
@@ -463,7 +490,9 @@ function ResultTable({
           <tr>
             <th>原始地址</th>
             <th>规范结果</th>
+            <th>最终结果</th>
             <th>阶段</th>
+            <th>最终来源</th>
             <th>置信度</th>
           </tr>
         </thead>
@@ -481,9 +510,19 @@ function ResultTable({
                 )}
               </td>
               <td>
-                <span className={`progressBadge ${row.status}`}>
+                <span className={`resultBadge ${resultStatusClass(row)}`}>
+                  {resultStatusLabel(row)}
+                </span>
+              </td>
+              <td>
+                <span className={`progressBadge ${stageBadgeClass(row)}`}>
                   {row.status === "error" && <AlertTriangle size={14} />}
                   {stageLabel(row.stage)}
+                </span>
+              </td>
+              <td>
+                <span className={`sourceBadge ${rowSourceClass(row)}`}>
+                  {rowSourceLabel(row)}
                 </span>
               </td>
               <td>{row.result ? row.result.confidence.toFixed(3) : row.elapsed_ms ? `${(row.elapsed_ms / 1000).toFixed(1)}s` : "-"}</td>
@@ -511,6 +550,78 @@ function stageLabel(stage: string) {
     error: "错误"
   };
   return labels[stage] ?? stage;
+}
+
+function stageBadgeClass(row: RowProgress) {
+  if (isFailedRow(row)) {
+    return "error";
+  }
+  return row.status;
+}
+
+function resultStatusLabel(row: RowProgress) {
+  if (row.result) {
+    return isUnmatched(row.result) ? "失败" : "成功";
+  }
+  if (row.status === "error") {
+    return "失败";
+  }
+  if (row.status === "pending") {
+    return "等待";
+  }
+  return "处理中";
+}
+
+function resultStatusClass(row: RowProgress) {
+  if (row.result) {
+    return isUnmatched(row.result) ? "failed" : "success";
+  }
+  if (row.status === "error") {
+    return "failed";
+  }
+  if (row.status === "pending") {
+    return "pending";
+  }
+  return "running";
+}
+
+function sourceLabel(source?: string) {
+  const labels: Record<string, string> = {
+    map_api: "地图API",
+    poi: "POI快照",
+    memory: "记忆库",
+    standard: "标准库",
+    qwen: "Qwen",
+    none: "无"
+  };
+  return labels[source ?? "none"] ?? source ?? "无";
+}
+
+function sourceClass(source?: string) {
+  if (!source || source === "none") {
+    return "none";
+  }
+  return source;
+}
+
+function rowSourceLabel(row: RowProgress) {
+  if (row.result) {
+    return sourceLabel(row.result.source);
+  }
+  if (row.status === "pending" || row.status === "running") {
+    return "待定";
+  }
+  return "无";
+}
+
+function rowSourceClass(row: RowProgress) {
+  if (row.result) {
+    return sourceClass(row.result.source);
+  }
+  if (row.status === "pending" || row.status === "running") {
+    return "pending";
+  }
+  return "none";
 }
 
 function Meta({ label, value }: { label: string; value: string }) {
