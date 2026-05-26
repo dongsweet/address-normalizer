@@ -324,8 +324,12 @@ def _split_input_detail(value: str) -> tuple[str, dict[str, str]]:
             continue
         parsed = _normalize_detail_match(match, defaults)
         if parsed:
-            return compact[: match.start("detail")], parsed
+            return _strip_anchor_separator(compact[: match.start("detail")]), parsed
     return compact, {}
+
+
+def _strip_anchor_separator(value: str) -> str:
+    return value.rstrip("-_/\\|:：#")
 
 
 def _compact_text(value: str | None) -> str:
