@@ -368,7 +368,13 @@ class Database:
                 'memory' AS source,
                 memory.id::text AS candidate_id,
                 COALESCE(NULLIF(memory.components->>'name', ''), NULLIF(parent.components->>'name', '')) AS name,
-                memory.normalized_address AS full_address,
+                CASE
+                    WHEN
+                        NULLIF(memory.components->>'address_detail', '') IS NOT NULL
+                        AND RIGHT(memory.normalized_address, LENGTH(memory.components->>'address_detail')) = memory.components->>'address_detail'
+                    THEN LEFT(memory.normalized_address, LENGTH(memory.normalized_address) - LENGTH(memory.components->>'address_detail'))
+                    ELSE memory.normalized_address
+                END AS full_address,
                 COALESCE(NULLIF(memory.components->>'province', ''), NULLIF(parent.components->>'province', '')) AS province,
                 COALESCE(NULLIF(memory.components->>'city', ''), NULLIF(parent.components->>'city', '')) AS city,
                 COALESCE(NULLIF(memory.components->>'district', ''), NULLIF(parent.components->>'district', '')) AS district,
@@ -386,6 +392,7 @@ class Database:
                     'anchor_type', memory.anchor_type,
                     'anchor_id', memory.anchor_id,
                     'anchor_source', memory.anchor_source,
+                    'stored_normalized_address', memory.normalized_address,
                     'hit_count', memory.hit_count
                 ) AS metadata
             FROM address_memory AS memory
