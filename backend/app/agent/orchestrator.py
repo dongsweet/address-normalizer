@@ -246,9 +246,22 @@ _BUILDING_TOKEN = r"[A-Za-z0-9一二三四五六七八九十百千万零〇两]+
 _UNIT_TOKEN = r"[A-Za-z0-9一二三四五六七八九十百千万零〇两]+"
 _ROOM_TOKEN = r"[A-Za-z]?\d{2,5}"
 _BUILDING = rf"(?P<building>{_BUILDING_TOKEN}(?:栋|幢|号楼|楼栋|座|#))"
+_FLOOR = (
+    r"(?P<floor>"
+    r"(?:-[0-9一二三四五六七八九十]+|负[0-9一二三四五六七八九十]+|地下[0-9一二三四五六七八九十]+)(?:楼|层|F|f)"
+    r"|(?:B|b)[0-9]+(?:楼|层|F|f)?"
+    r"|(?:地下一|地下二|地下三|地下四|地下五|负一|负二|负三|负四|负五)(?:楼|层|F|f)?"
+    r")"
+)
 _UNIT = rf"(?P<unit>{_UNIT_TOKEN})(?:单元|单|门)"
 _ROOM = rf"(?P<room>{_ROOM_TOKEN})(?:室|房|号房|号)?"
 _DETAIL_PATTERNS: list[tuple[re.Pattern[str], dict[str, str]]] = [
+    (re.compile(rf"(?P<detail>{_BUILDING}{_FLOOR}{_UNIT}{_ROOM})$"), {}),
+    (re.compile(rf"(?P<detail>{_BUILDING}{_FLOOR}{_ROOM})$"), {}),
+    (re.compile(rf"(?P<detail>{_BUILDING}{_FLOOR})$"), {}),
+    (re.compile(rf"(?P<detail>{_FLOOR}{_UNIT}{_ROOM})$"), {}),
+    (re.compile(rf"(?P<detail>{_FLOOR}{_ROOM})$"), {}),
+    (re.compile(rf"(?P<detail>{_FLOOR})$"), {}),
     (re.compile(rf"(?P<detail>{_BUILDING}{_UNIT}{_ROOM})$"), {}),
     (re.compile(rf"(?P<detail>{_BUILDING}{_UNIT})$"), {}),
     (re.compile(rf"(?P<detail>{_BUILDING}(?P<unit_hyphen>{_UNIT_TOKEN})[-/]{_ROOM})$"), {}),
@@ -317,18 +330,21 @@ def _compact_text(value: str | None) -> str:
 def _normalize_detail_match(match: re.Match[str], defaults: dict[str, str]) -> dict[str, str]:
     groups = match.groupdict()
     building = _normalize_building(groups.get("building"))
+    floor = _normalize_floor(groups.get("floor"))
     unit = _normalize_unit(groups.get("unit") or groups.get("unit_hyphen") or groups.get("unit_alpha"))
     room = _normalize_room(groups.get("room") or _alpha_room(groups.get("unit_alpha"), groups.get("room_alpha")))
 
     if not unit and defaults.get("default_unit") and room:
         unit = _normalize_unit(defaults["default_unit"])
 
-    parts = [part for part in [building, unit, room] if part]
+    parts = [part for part in [building, floor, unit, room] if part]
     if not parts:
         return {}
     parsed: dict[str, str] = {}
     if building:
         parsed["building"] = building
+    if floor:
+        parsed["floor"] = floor
     if unit:
         parsed["unit"] = unit
     if room:
@@ -345,6 +361,49 @@ def _normalize_building(value: str | None) -> str | None:
     if value.endswith("楼栋"):
         return f"{value[:-2]}栋"
     return value
+
+
+_CHINESE_DIGITS = {
+    "零": 0,
+    "〇": 0,
+    "一": 1,
+    "二": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+    "十": 10,
+}
+
+
+def _normalize_floor(value: str | None) -> str | None:
+    if not value:
+        return None
+    text = re.sub(r"(楼|层|F|f)$", "", value)
+    text = text.replace("地下", "").replace("负", "").replace("-", "").replace("B", "").replace("b", "")
+    floor_no = _parse_small_number(text)
+    if floor_no is None:
+        return None
+    return f"负{floor_no}楼"
+
+
+def _parse_small_number(value: str) -> int | None:
+    if not value:
+        return 1
+    if value.isdigit():
+        return int(value)
+    if value in _CHINESE_DIGITS:
+        return _CHINESE_DIGITS[value]
+    if value.startswith("十"):
+        return 10 + _CHINESE_DIGITS.get(value[1:], 0)
+    if "十" in value:
+        left, right = value.split("十", 1)
+        return _CHINESE_DIGITS.get(left, 0) * 10 + _CHINESE_DIGITS.get(right, 0)
+    return None
 
 
 def _normalize_unit(value: str | None) -> str | None:
@@ -386,7 +445,7 @@ def _merge_input_detail(base_address: str, detail: dict[str, str]) -> str:
 
     remaining_parts = [
         part
-        for part in [detail.get("building"), detail.get("unit"), detail.get("room")]
+        for part in [detail.get("building"), detail.get("floor"), detail.get("unit"), detail.get("room")]
         if part
     ]
     skipped_existing = False
@@ -401,7 +460,7 @@ def _merge_input_detail(base_address: str, detail: dict[str, str]) -> str:
 
 
 def _details_overlap(left: dict[str, str], right: dict[str, str]) -> bool:
-    for key in ("building", "unit", "room"):
+    for key in ("building", "floor", "unit", "room"):
         left_value = left.get(key)
         right_value = right.get(key)
         if left_value and right_value and _detail_part_key(left_value) == _detail_part_key(right_value):
