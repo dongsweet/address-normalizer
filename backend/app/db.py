@@ -906,6 +906,10 @@ def _memory_anchor_pattern(raw_address: Any, components: dict[str, Any], fallbac
     if not components.get("address_detail"):
         return raw or fallback
 
+    input_anchor = _text_or_none(components.get("input_anchor"))
+    if input_anchor:
+        return input_anchor
+
     name = _text_or_none(components.get("name"))
     if name and name in raw:
         return raw[: raw.find(name) + len(name)]
@@ -916,6 +920,11 @@ def _memory_anchor_pattern(raw_address: Any, components: dict[str, Any], fallbac
 
 
 def _memory_raw_detail(raw_address: str, components: dict[str, Any]) -> str | None:
+    input_anchor = _text_or_none(components.get("input_anchor"))
+    if input_anchor and input_anchor in raw_address:
+        detail = raw_address[raw_address.find(input_anchor) + len(input_anchor) :].strip()
+        return detail or None
+
     name = _text_or_none(components.get("name"))
     if name and name in raw_address:
         detail = raw_address[raw_address.find(name) + len(name) :].strip()

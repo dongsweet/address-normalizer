@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -34,7 +35,8 @@ map_client = MapClient(settings, db)
 mgeo = MGeoClient(settings.mgeo_url, settings.mgeo_enabled, settings.mgeo_timeout_seconds)
 agent = AddressAgent(settings, db, qwen, map_client, mgeo)
 AUTO_PERSIST_WARNING = "已自动沉淀到记忆库"
-AUTO_PERSIST_MATCH_LEVELS = {"memory", "standard", "poi"}
+AUTO_PERSIST_SOURCES = {"map_api"}
+MAP_API_AUTO_PERSIST_MIN_CONFIDENCE = 0.95
 
 
 @asynccontextmanager
@@ -113,8 +115,8 @@ async def normalize_batch(request: NormalizeBatchRequest) -> NormalizeBatchRespo
     async def run_one(index: int, address: str) -> None:
         async with semaphore:
             result = await agent.normalize_one(address, use_qwen=request.use_qwen, use_map_api=request.use_map_api)
-            if request.auto_persist_memory:
-                _try_auto_persist(result)
+            auto_persisted = _try_auto_persist(result) if request.auto_persist_memory else False
+            result.auto_persist_reason = _auto_persist_reason(result, request.auto_persist_memory, auto_persisted)
             results[index] = result
 
     await asyncio.gather(*(run_one(index, address) for index, address in enumerate(addresses)))
@@ -175,8 +177,8 @@ async def normalize_stream(request: NormalizeBatchRequest) -> StreamingResponse:
                         use_map_api=request.use_map_api,
                         progress=publish,
                     )
-                    if request.auto_persist_memory:
-                        _try_auto_persist(result)
+                    auto_persisted = _try_auto_persist(result) if request.auto_persist_memory else False
+                    result.auto_persist_reason = _auto_persist_reason(result, request.auto_persist_memory, auto_persisted)
                     if job_id:
                         db.save_result(
                             job_id,
@@ -265,12 +267,123 @@ def _try_auto_persist(result: NormalizedAddress) -> bool:
 def _should_auto_persist(result: NormalizedAddress) -> bool:
     if not result.normalized_address or result.anchor_type == "unmatched" or result.source == "none":
         return False
-    if result.match_level not in AUTO_PERSIST_MATCH_LEVELS:
+    if result.source not in AUTO_PERSIST_SOURCES:
         return False
-    threshold = settings.auto_memory_min_confidence
-    if result.match_level == "memory":
-        threshold = min(threshold, settings.memory_fast_path_score)
-    return result.confidence >= threshold
+    if result.confidence < max(settings.auto_memory_min_confidence, MAP_API_AUTO_PERSIST_MIN_CONFIDENCE):
+        return False
+    return _map_result_covers_input(result)
+
+
+def _map_result_covers_input(result: NormalizedAddress) -> bool:
+    return _map_input_residual(result) == ""
+
+
+def _map_input_residual(result: NormalizedAddress) -> str:
+    input_key = _signal_key(result.cleaned_input or result.input)
+    if not input_key:
+        return ""
+
+    components = result.components or {}
+    candidate_keys = _unique_keys(
+        [
+            result.normalized_address,
+            str(components.get("name") or ""),
+        ]
+    )
+    if any(input_key in key for key in candidate_keys):
+        return ""
+
+    residual = input_key
+    removable_values = [
+        result.normalized_address,
+        str(components.get("name") or ""),
+        str(components.get("province") or ""),
+        str(components.get("city") or ""),
+        str(components.get("district") or ""),
+        str(components.get("town") or ""),
+        str(components.get("building") or ""),
+        str(components.get("unit") or ""),
+        str(components.get("floor") or ""),
+        str(components.get("room") or ""),
+        str(components.get("address_detail") or ""),
+    ]
+    for key in sorted(_unique_keys(removable_values), key=len, reverse=True):
+        residual = residual.replace(key, "")
+        for suffix in ("维吾尔自治区", "自治区", "自治州", "地区", "省", "市", "区", "县"):
+            if key.endswith(suffix):
+                residual = residual.replace(key[: -len(suffix)], "")
+
+    residual = _strip_non_anchor_terms(residual)
+    return residual if len(residual) > 3 else ""
+
+
+def _auto_persist_reason(result: NormalizedAddress, enabled: bool, persisted: bool) -> str | None:
+    if persisted:
+        return None
+    if not enabled:
+        return "本次未开启自动沉淀"
+    if not result.normalized_address or result.anchor_type == "unmatched" or result.source == "none":
+        return "当前结果未形成可沉淀的规范地址"
+    if any(warning.startswith("自动沉淀失败:") for warning in result.warnings):
+        return next(warning for warning in result.warnings if warning.startswith("自动沉淀失败:"))
+    if result.source == "memory":
+        return None
+    if result.source not in AUTO_PERSIST_SOURCES:
+        return f"当前仅对 {', '.join(sorted(AUTO_PERSIST_SOURCES))} 结果自动沉淀"
+    threshold = max(settings.auto_memory_min_confidence, MAP_API_AUTO_PERSIST_MIN_CONFIDENCE)
+    if result.confidence < threshold:
+        return f"置信度 {result.confidence:.3f} 未达到自动沉淀阈值 {threshold:.3f}"
+    residual = _map_input_residual(result)
+    if residual:
+        return f"输入里仍有未被最终结果覆盖的关键信号：{residual}"
+    return "未满足自动沉淀条件"
+
+
+def _unique_keys(values: list[str]) -> list[str]:
+    keys: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        key = _signal_key(value)
+        if key and key not in seen:
+            seen.add(key)
+            keys.append(key)
+    return keys
+
+
+def _signal_key(value: str | None) -> str:
+    return "".join(re.findall(r"[\u4e00-\u9fffa-zA-Z0-9]+", value or "")).lower()
+
+
+def _strip_non_anchor_terms(value: str) -> str:
+    text = value
+    for term in (
+        "新疆",
+        "维吾尔",
+        "自治区",
+        "乌鲁木齐",
+        "乌市",
+        "天山",
+        "沙区",
+        "沙依巴克",
+        "新市",
+        "水磨沟",
+        "经开",
+        "高新",
+        "送到",
+        "快递",
+        "驿站",
+        "就行",
+        "门口",
+        "对面",
+        "旁边",
+        "附近",
+        "楼下",
+        "入口",
+        "出口",
+    ):
+        text = text.replace(term, "")
+    text = re.sub(r"\d+号门", "", text)
+    return text
 
 
 def _memory_payload(result: NormalizedAddress, confirmed_by: str) -> dict[str, Any]:

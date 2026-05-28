@@ -30,21 +30,6 @@ class QwenClient:
     ) -> dict[str, Any] | None:
         if not self.settings.qwen_configured or not candidates:
             return None
-        if self._quota_exceeded("qwen", self.settings.qwen_daily_quota, self.settings.qwen_monthly_quota):
-            logger.warning("qwen api quota exceeded, skipping chat completion")
-            self._log_api_call(
-                provider="qwen",
-                call_type="chat_completion",
-                request_query=cleaned or raw,
-                response_status="quota_exceeded",
-                metadata={"candidate_count": len(candidates), "model": self.settings.qwen_model},
-            )
-            return None
-
-        base_url = self.settings.qwen_base_url.rstrip("/")
-        endpoint = f"{base_url}/chat/completions"
-        if not base_url.endswith("/v1"):
-            endpoint = f"{base_url}/v1/chat/completions"
 
         candidate_payload = [
             {
@@ -81,6 +66,72 @@ class QwenClient:
                 "normalized_address": "string|null",
             },
         }
+        return await self._chat_completion(
+            request_query=cleaned or raw,
+            call_type="chat_completion",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            metadata={"candidate_count": len(candidates), "model": self.settings.qwen_model},
+        )
+
+    async def repair_cleaned_address(self, raw: str, cleaned: str) -> dict[str, Any] | None:
+        if not self.settings.qwen_configured:
+            return None
+
+        system_prompt = (
+            "你是地址清洗修复器。"
+            "请从原始文本中提取可用于地址规范化的地址主体，并保留楼栋、单元、楼层、房号等必要细节。"
+            "删除配送备注、动作描述、联系说明、礼貌用语。"
+            "不能虚构地址；如果文本里没有明确地址，请返回 has_address=false。"
+            "只输出 JSON。"
+        )
+        user_prompt = {
+            "raw_address": raw,
+            "local_cleaned_address": cleaned,
+            "rules": [
+                "优先保留可定位的主地名，再拼接楼栋/楼层/房号等细节",
+                "像“放前台”“送到门口”“打电话”这类备注不要保留",
+                "若本地清洗已经合理，可以直接复用或轻微修正",
+            ],
+            "output_schema": {
+                "has_address": "boolean",
+                "cleaned_address": "string|null",
+                "anchor_text": "string|null",
+                "detail_text": "string|null",
+                "removed_notes": ["string"],
+                "confidence": "0-1 number",
+                "reason": "short Chinese explanation",
+            },
+        }
+        return await self._chat_completion(
+            request_query=cleaned or raw,
+            call_type="clean_repair",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            metadata={"model": self.settings.qwen_model},
+        )
+
+    async def _chat_completion(
+        self,
+        *,
+        request_query: str,
+        call_type: str,
+        system_prompt: str,
+        user_prompt: dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if self._quota_exceeded("qwen", self.settings.qwen_daily_quota, self.settings.qwen_monthly_quota):
+            logger.warning("qwen api quota exceeded, skipping chat completion")
+            self._log_api_call(
+                provider="qwen",
+                call_type=call_type,
+                request_query=request_query,
+                response_status="quota_exceeded",
+                metadata=metadata,
+            )
+            return None
+
+        endpoint = self._chat_endpoint()
         request_payload = {
             "model": self.settings.qwen_model,
             "temperature": 0.1,
@@ -100,12 +151,12 @@ class QwenClient:
         except Exception as exc:  # noqa: BLE001
             self._log_api_call(
                 provider="qwen",
-                call_type="chat_completion",
-                request_query=cleaned or raw,
+                call_type=call_type,
+                request_query=request_query,
                 response_status="error",
                 http_status=http_status,
                 error_message=str(exc),
-                metadata={"candidate_count": len(candidates), "model": self.settings.qwen_model},
+                metadata=metadata,
             )
             raise
 
@@ -113,16 +164,21 @@ class QwenClient:
         tokens_used = _to_int(usage.get("total_tokens"))
         self._log_api_call(
             provider="qwen",
-            call_type="chat_completion",
-            request_query=cleaned or raw,
+            call_type=call_type,
+            request_query=request_query,
             response_status="success",
             http_status=http_status,
             tokens_used=tokens_used,
-            metadata={"candidate_count": len(candidates), "model": self.settings.qwen_model},
+            metadata=metadata,
         )
-
         content = payload["choices"][0]["message"]["content"]
         return _parse_json_content(content)
+
+    def _chat_endpoint(self) -> str:
+        base_url = self.settings.qwen_base_url.rstrip("/")
+        if base_url.endswith("/v1"):
+            return f"{base_url}/chat/completions"
+        return f"{base_url}/v1/chat/completions"
 
     def _quota_exceeded(self, provider: str, daily_quota: int | None, monthly_quota: int | None) -> bool:
         if not self.db or (daily_quota is None and monthly_quota is None):

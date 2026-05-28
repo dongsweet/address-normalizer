@@ -30,6 +30,7 @@ export interface NormalizedAddress {
   match_level: string;
   candidates: AddressCandidate[];
   warnings: string[];
+  auto_persist_reason?: string | null;
   raw_model_output?: Record<string, unknown> | null;
 }
 

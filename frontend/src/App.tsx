@@ -47,7 +47,7 @@ export function App() {
   const [useQwen, setUseQwen] = useState(true);
   const [useMapApi, setUseMapApi] = useState(true);
   const [autoPersistMemory, setAutoPersistMemory] = useState(true);
-  const [concurrency, setConcurrency] = useState(2);
+  const [concurrency, setConcurrency] = useState(1);
   const [progressRows, setProgressRows] = useState<RowProgress[]>([]);
 
   useEffect(() => {
@@ -65,7 +65,7 @@ export function App() {
   const progressDone = progressRows.filter((row) => row.status === "done" || row.status === "error").length;
   const progressSucceeded = progressRows.filter((row) => row.result && !isUnmatched(row.result)).length;
   const progressFailed = progressRows.filter((row) => isFailedRow(row)).length;
-  const progressPersisted = progressRows.filter((row) => row.result && isPersisted(row.result)).length;
+  const progressPersisted = progressRows.filter((row) => row.result && isNewlyPersisted(row.result)).length;
   const outputLines = activeResults.map(formatOutputLine).join("\n");
   const outputJson = JSON.stringify(activeResults, null, 2);
 
@@ -169,7 +169,7 @@ export function App() {
   }
 
   async function saveSelected() {
-    if (!selected || isPersisted(selected)) return;
+    if (!selected || !canManualPersist(selected)) return;
     setBusy(true);
     setError("");
     try {
@@ -326,7 +326,7 @@ export function App() {
               <FileJson size={18} />
               <span>详情</span>
             </div>
-            <button className="textButton" onClick={saveSelected} disabled={!selected || isUnmatched(selected) || isPersisted(selected) || busy}>
+            <button className="textButton" onClick={saveSelected} disabled={!selected || !canManualPersist(selected) || busy}>
               <Save size={18} />
               <span>{selected ? persistButtonLabel(selected) : "沉淀本条"}</span>
             </button>
@@ -342,6 +342,9 @@ export function App() {
                 <Meta label="层级" value={selected.match_level} />
                 <Meta label="沉淀" value={persistStateLabel(selected)} />
                 <Meta label="锚点" value={selected.anchor_id ?? "-"} />
+                {selected.auto_persist_reason && !isNewlyPersisted(selected) && (
+                  <Meta label="未自动沉淀原因" value={selected.auto_persist_reason} />
+                )}
               </div>
               <pre className="codeBlock small">{JSON.stringify(selected, null, 2)}</pre>
             </div>
@@ -369,6 +372,10 @@ function isUnmatched(result: NormalizedAddress) {
 }
 
 function isPersisted(result: NormalizedAddress) {
+  return isMemoryHit(result) || isNewlyPersisted(result);
+}
+
+function isNewlyPersisted(result: NormalizedAddress) {
   return isAutoPersisted(result) || result.warnings.includes(MANUAL_PERSIST_WARNING);
 }
 
@@ -376,7 +383,18 @@ function isAutoPersisted(result: NormalizedAddress) {
   return result.warnings.includes(AUTO_PERSIST_WARNING);
 }
 
+function isMemoryHit(result: NormalizedAddress) {
+  return result.source === "memory";
+}
+
+function canManualPersist(result: NormalizedAddress) {
+  return !isUnmatched(result) && !isPersisted(result);
+}
+
 function persistStateLabel(result: NormalizedAddress) {
+  if (isMemoryHit(result)) {
+    return "已在库";
+  }
   if (isAutoPersisted(result)) {
     return "自动";
   }
@@ -387,6 +405,9 @@ function persistStateLabel(result: NormalizedAddress) {
 }
 
 function persistButtonLabel(result: NormalizedAddress) {
+  if (isMemoryHit(result)) {
+    return "已在记忆库";
+  }
   if (isAutoPersisted(result)) {
     return "已自动沉淀";
   }
@@ -434,6 +455,7 @@ function StageHelp() {
     ["召回", "库内候选"],
     ["地图", "API补召回"],
     ["MGeo", "地址要素拆分"],
+    ["修复", "Qwen修复清洗结果"],
     ["Qwen", "候选择优/拒识"],
     ["直出", "高置信跳过模型"],
     ["拒识", "无可信地址"]
@@ -629,6 +651,7 @@ function stageLabel(stage: string) {
     rank: "排序",
     map_api: "地图",
     mgeo: "MGeo",
+    repair: "修复",
     qwen: "Qwen",
     fast_path: "直出",
     unmatched: "拒识",

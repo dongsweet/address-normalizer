@@ -38,6 +38,7 @@ class NormalizedAddress(BaseModel):
     match_level: str
     candidates: list[AddressCandidate] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    auto_persist_reason: str | None = None
     raw_model_output: dict[str, Any] | None = None
 
 
@@ -47,7 +48,7 @@ class NormalizeBatchRequest(BaseModel):
     use_map_api: bool = True
     persist_job: bool = True
     auto_persist_memory: bool = False
-    concurrency: int = Field(default=2, ge=1, le=8)
+    concurrency: int = Field(default=1, ge=1, le=8)
 
 
 class NormalizeBatchResponse(BaseModel):

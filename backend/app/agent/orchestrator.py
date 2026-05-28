@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from app.adapters.map_client import MapClient
@@ -14,6 +15,18 @@ from app.db import Database
 from app.schemas import AddressCandidate, NormalizedAddress
 
 ProgressCallback = Callable[[str, str], None]
+
+
+@dataclass
+class PipelineAttempt:
+    cleaned: str
+    ranked: list[AddressCandidate]
+    warnings: list[str]
+    selected: AddressCandidate | None
+    qwen_rejected: bool
+    qwen_output: dict[str, Any] | None
+    raw_model_output: dict[str, Any] | None
+    input_detail: dict[str, str]
 
 
 class AddressAgent:
@@ -40,7 +53,6 @@ class AddressAgent:
     ) -> NormalizedAddress:
         _emit(progress, "clean", "清洗输入")
         cleaned = clean_address(raw_address)
-        warnings: list[str] = []
         if not cleaned:
             _emit(progress, "done", "空地址")
             return NormalizedAddress(
@@ -54,7 +66,78 @@ class AddressAgent:
                 match_level="empty",
                 warnings=["地址为空或只包含配送备注"],
             )
+        attempt = await self._run_pipeline(
+            raw_address=raw_address,
+            cleaned=cleaned,
+            use_qwen=use_qwen,
+            use_map_api=use_map_api,
+            progress=progress,
+        )
 
+        repaired_raw_output: dict[str, Any] | None = None
+        if self._should_repair_cleaning(raw_address, cleaned, attempt, use_qwen):
+            _emit(progress, "repair", "Qwen修复清洗结果")
+            try:
+                repair_payload = await self.qwen.repair_cleaned_address(raw_address, cleaned)
+            except Exception as exc:  # noqa: BLE001
+                repair_payload = None
+                attempt.warnings.append(f"Qwen清洗修复失败: {exc}")
+            repaired_raw_output = {"clean_repair": repair_payload, "cleaned_before_repair": cleaned} if repair_payload else None
+            repaired_cleaned = _repaired_cleaned_text(repair_payload)
+            if repaired_cleaned and repaired_cleaned != cleaned:
+                attempt = await self._run_pipeline(
+                    raw_address=raw_address,
+                    cleaned=repaired_cleaned,
+                    use_qwen=use_qwen,
+                    use_map_api=use_map_api,
+                    progress=progress,
+                )
+                attempt.warnings.insert(0, _clean_repair_warning(repair_payload, repaired_cleaned))
+
+        attempt.raw_model_output = _merge_raw_model_output(attempt.raw_model_output, repaired_raw_output)
+        if not attempt.selected:
+            _emit(progress, "unmatched", "没有可信候选")
+            if attempt.qwen_rejected:
+                attempt.warnings.append("候选均不可信，不生成规范地址")
+            else:
+                attempt.warnings.append("没有召回可信候选，不生成规范地址")
+            return NormalizedAddress(
+                input=raw_address,
+                cleaned_input=attempt.cleaned,
+                normalized_address="",
+                output_line="",
+                components={},
+                anchor_type="unmatched",
+                source="none",
+                confidence=round(_model_confidence(attempt.qwen_output, 0.0 if attempt.qwen_rejected else 0.3), 3),
+                match_level=str(attempt.qwen_output.get("match_level") or "unknown") if attempt.qwen_output else "unknown",
+                candidates=attempt.ranked,
+                warnings=attempt.warnings,
+                raw_model_output=attempt.raw_model_output,
+            )
+
+        _emit(progress, "done", "完成")
+        return _selected_result(
+            raw_address,
+            attempt.cleaned,
+            attempt.selected,
+            attempt.ranked,
+            attempt.warnings,
+            attempt.raw_model_output,
+            attempt.qwen_output,
+            attempt.input_detail,
+        )
+
+    async def _run_pipeline(
+        self,
+        *,
+        raw_address: str,
+        cleaned: str,
+        use_qwen: bool,
+        use_map_api: bool,
+        progress: ProgressCallback | None,
+    ) -> PipelineAttempt:
+        warnings: list[str] = []
         recall_query, input_detail = _split_input_detail(cleaned)
         recall_queries = _unique_texts([cleaned, recall_query])
 
@@ -96,7 +179,16 @@ class AddressAgent:
             warnings.append("高置信候选直接命中，跳过Qwen" if mgeo_payload else "高置信候选直接命中，跳过MGeo和Qwen")
             _emit(progress, "fast_path", "高置信候选直接命中")
             raw_model_output = {"mgeo": mgeo_payload, "qwen": None} if mgeo_payload else None
-            return _selected_result(raw_address, cleaned, fast_path_candidate, ranked, warnings, raw_model_output, None, input_detail)
+            return PipelineAttempt(
+                cleaned=cleaned,
+                ranked=ranked,
+                warnings=warnings,
+                selected=fast_path_candidate,
+                qwen_rejected=False,
+                qwen_output=None,
+                raw_model_output=raw_model_output,
+                input_detail=input_detail,
+            )
 
         if use_qwen and self.settings.qwen_configured and ranked:
             if not mgeo_payload:
@@ -132,29 +224,30 @@ class AddressAgent:
             except Exception as exc:  # noqa: BLE001
                 warnings.append(f"Qwen候选选择失败: {exc}")
 
-        if not selected:
-            _emit(progress, "unmatched", "没有可信候选")
-            if qwen_rejected:
-                warnings.append("候选均不可信，不生成规范地址")
-            else:
-                warnings.append("没有召回可信候选，不生成规范地址")
-            return NormalizedAddress(
-                input=raw_address,
-                cleaned_input=cleaned,
-                normalized_address="",
-                output_line="",
-                components={},
-                anchor_type="unmatched",
-                source="none",
-                confidence=round(_model_confidence(qwen_output, 0.0 if qwen_rejected else 0.3), 3),
-                match_level=str(qwen_output.get("match_level") or "unknown") if qwen_output else "unknown",
-                candidates=ranked,
-                warnings=warnings,
-                raw_model_output=raw_model_output,
-            )
+        return PipelineAttempt(
+            cleaned=cleaned,
+            ranked=ranked,
+            warnings=warnings,
+            selected=selected,
+            qwen_rejected=qwen_rejected,
+            qwen_output=qwen_output,
+            raw_model_output=raw_model_output,
+            input_detail=input_detail,
+        )
 
-        _emit(progress, "done", "完成")
-        return _selected_result(raw_address, cleaned, selected, ranked, warnings, raw_model_output, qwen_output, input_detail)
+    def _should_repair_cleaning(
+        self,
+        raw_address: str,
+        cleaned: str,
+        attempt: PipelineAttempt,
+        use_qwen: bool,
+    ) -> bool:
+        if not (use_qwen and self.settings.qwen_configured and self.settings.cleaning_repair_enabled):
+            return False
+        if not _looks_like_mixed_input(raw_address, cleaned):
+            return False
+        top_score = attempt.selected.score if attempt.selected else (attempt.ranked[0].score if attempt.ranked else 0.0)
+        return top_score < self.settings.cleaning_repair_min_score
 
 
 def _match_level(candidate: AddressCandidate) -> str:
@@ -242,6 +335,49 @@ def _unique_texts(values: list[str]) -> list[str]:
     return unique
 
 
+def _looks_like_mixed_input(raw_address: str, cleaned: str) -> bool:
+    raw_key = _compact_text(raw_address)
+    cleaned_key = _compact_text(cleaned)
+    if not raw_key or not cleaned_key:
+        return False
+    if re.search(r"[，,;；\n]", raw_address) and raw_key != cleaned_key:
+        return True
+    if len(raw_key) - len(cleaned_key) >= 4:
+        return True
+    return bool(re.search(r"(前台|门口|楼下|保安|电话|联系|备注|麻烦|谢谢|快递|外卖)", raw_address) and raw_key != cleaned_key)
+
+
+def _repaired_cleaned_text(payload: dict[str, Any] | None) -> str | None:
+    if not payload or payload.get("has_address") is False:
+        return None
+    cleaned = str(payload.get("cleaned_address") or "").strip()
+    if not cleaned:
+        anchor = str(payload.get("anchor_text") or "").strip()
+        detail = str(payload.get("detail_text") or "").strip()
+        cleaned = f"{anchor}{detail}".strip()
+    if not cleaned:
+        return None
+    return clean_address(cleaned)
+
+
+def _clean_repair_warning(payload: dict[str, Any] | None, repaired_cleaned: str) -> str:
+    reason = str((payload or {}).get("reason") or "").strip()
+    if reason:
+        return f"Qwen清洗修复后重试: {repaired_cleaned}（{reason}）"
+    return f"Qwen清洗修复后重试: {repaired_cleaned}"
+
+
+def _merge_raw_model_output(base: dict[str, Any] | None, extra: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not base and not extra:
+        return None
+    merged: dict[str, Any] = {}
+    if base:
+        merged.update(base)
+    if extra:
+        merged.update(extra)
+    return merged
+
+
 _BUILDING_TOKEN = r"[A-Za-z0-9一二三四五六七八九十百千万零〇两]+"
 _UNIT_TOKEN = r"[A-Za-z0-9一二三四五六七八九十百千万零〇两]+"
 _ROOM_TOKEN = r"[A-Za-z]?\d{2,5}"
@@ -268,6 +404,7 @@ _DETAIL_PATTERNS: list[tuple[re.Pattern[str], dict[str, str]]] = [
     (re.compile(rf"(?P<detail>{_FLOOR}{_UNIT}{_ROOM})$"), {}),
     (re.compile(rf"(?P<detail>{_FLOOR}{_ROOM})$"), {}),
     (re.compile(rf"(?P<detail>{_FLOOR})$"), {}),
+    (re.compile(rf"(?P<detail>{_GROUND_FLOOR})$"), {}),
     (re.compile(rf"(?P<detail>{_BUILDING}{_UNIT}{_ROOM})$"), {}),
     (re.compile(rf"(?P<detail>{_BUILDING}{_UNIT})$"), {}),
     (re.compile(rf"(?P<detail>{_BUILDING}(?P<unit_hyphen>{_UNIT_TOKEN})[-/]{_ROOM})$"), {}),
@@ -525,11 +662,14 @@ def _selected_result(
         "lat": selected.lat,
     }
     input_detail = input_detail or _input_detail(cleaned, selected)
+    input_anchor, _ = _split_input_detail(cleaned)
     normalized_address = _merge_input_detail(selected.full_address, input_detail)
     if input_detail:
         components.update(input_detail)
+        if input_anchor:
+            components["input_anchor"] = input_anchor
     if normalized_address != selected.full_address:
-        warnings.append("已保留输入中的楼栋/单元/房号")
+        warnings.append("已保留输入中的楼栋/楼层/单元/房号")
 
     match_level = _match_level(selected)
     if qwen_output and qwen_output.get("match_level"):

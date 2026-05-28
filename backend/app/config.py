@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     qwen_api_key: str | None = None
     qwen_model: str = "qwen3.6-27b"
     qwen_timeout_seconds: float = 20.0
+    cleaning_repair_enabled: bool = True
+    cleaning_repair_min_score: float = 0.86
 
     mgeo_enabled: bool = False
     mgeo_url: str | None = None
