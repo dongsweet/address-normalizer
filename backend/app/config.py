@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     hive_table: str = "ysk_datahub_address_standed"
     hive_username: str | None = None
     hive_password: str | None = None
-    hive_auth_mechanism: str = "NOSASL"
+    hive_auth_mechanism: str = "PLAIN"
     hive_query_timeout_seconds: float = 8.0
     hive_fetch_limit: int = 20
 

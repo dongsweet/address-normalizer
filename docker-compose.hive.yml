@@ -61,6 +61,9 @@ services:
     image: address-normalizer-hive-base
     container_name: address-normalizer-hive-init
     restart: "no"
+    entrypoint:
+      - /bin/bash
+      - -lc
     environment:
       HIVE_USER: ${HIVE_USERNAME:-hive}
       HIVE_PASSWORD: ${HIVE_PASSWORD:-changeme}
@@ -71,8 +74,6 @@ services:
       hive:
         condition: service_healthy
     command:
-      - /bin/bash
-      - -lc
       - |
         until /opt/hive/bin/beeline -u jdbc:hive2://hive:10000/default -n "$$HIVE_USER" -p "$$HIVE_PASSWORD" -e "SHOW DATABASES;" >/tmp/hive-init.log 2>&1; do
           cat /tmp/hive-init.log || true
