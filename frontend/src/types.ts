@@ -1,4 +1,4 @@
-export type CandidateSource = "memory" | "standard" | "poi" | "map_api" | "qwen";
+export type CandidateSource = "memory" | "standard" | "poi" | "qwen";
 
 export interface AddressCandidate {
   source: CandidateSource;
@@ -101,13 +101,13 @@ export interface ConfigStatus {
   database: string;
   qwen: string;
   mgeo: string;
-  map_api: string;
-  standard_address: string;
+  hive: string;
+  hive_table?: string | null;
   poi_rows: number;
   memory_rows: number;
   memory_alias_rows: number;
   memory_detail_rows: number;
   default_city: string;
-  map_api_calls_today: number;
+  hive_calls_today: number;
   qwen_calls_today: number;
 }

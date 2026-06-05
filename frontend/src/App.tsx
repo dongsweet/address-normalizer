@@ -45,7 +45,6 @@ export function App() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [useQwen, setUseQwen] = useState(true);
-  const [useMapApi, setUseMapApi] = useState(true);
   const [autoPersistMemory, setAutoPersistMemory] = useState(true);
   const [concurrency, setConcurrency] = useState(1);
   const [progressRows, setProgressRows] = useState<RowProgress[]>([]);
@@ -96,7 +95,7 @@ export function App() {
     );
     const streamedResults: NormalizedAddress[] = [];
     try {
-      await normalizeBatchStream(addresses, useQwen, useMapApi, autoPersistMemory, concurrency, (event) => {
+      await normalizeBatchStream(addresses, useQwen, autoPersistMemory, concurrency, (event) => {
         handleStreamEvent(event, streamedResults);
       });
       setResults(streamedResults.filter(Boolean));
@@ -204,7 +203,7 @@ export function App() {
       <header className="topbar">
         <div>
           <h1>地址规范化工作台</h1>
-          <div className="subtle">乌鲁木齐 · POI锚定 · 标准库可选</div>
+          <div className="subtle">乌鲁木齐 · Hive标准地址库 · 记忆沉淀</div>
         </div>
         <div className="statusRow">
           <StatusPill label="PG" value={status?.database ?? "unknown"} />
@@ -212,11 +211,11 @@ export function App() {
           <StatusPill label="记忆" value={status ? `${status.memory_rows}` : "0"} />
           <StatusPill label="别名" value={status ? `${status.memory_alias_rows}` : "0"} />
           <StatusPill label="明细" value={status ? `${status.memory_detail_rows}` : "0"} />
-          <StatusPill label="标准库" value={status?.standard_address ?? "missing"} />
+          <StatusPill label="Hive" value={status?.hive ?? "disabled"} />
+          <StatusPill label="表" value={status?.hive_table ?? "-"} />
           <StatusPill label="Qwen" value={status?.qwen ?? "disabled"} />
           <StatusPill label="MGeo" value={status?.mgeo ?? "disabled"} />
-          <StatusPill label="地图" value={status?.map_api ?? "disabled"} />
-          <StatusPill label="今日地图" value={status ? `${status.map_api_calls_today}` : "0"} />
+          <StatusPill label="今日Hive" value={status ? `${status.hive_calls_today}` : "0"} />
           <StatusPill label="今日Qwen" value={status ? `${status.qwen_calls_today}` : "0"} />
           <a className="textButton guideLink" href="/flow.html">
             <FileJson size={18} />
@@ -256,10 +255,6 @@ export function App() {
             <label className="toggle">
               <input type="checkbox" checked={useQwen} onChange={(event) => setUseQwen(event.target.checked)} />
               <span>Qwen</span>
-            </label>
-            <label className="toggle">
-              <input type="checkbox" checked={useMapApi} onChange={(event) => setUseMapApi(event.target.checked)} />
-              <span>地图</span>
             </label>
             <label className="toggle" title="高质量命中自动写入记忆库">
               <input
@@ -453,7 +448,7 @@ function StageHelp() {
   ];
   const items = [
     ["召回", "库内候选"],
-    ["地图", "API补召回"],
+    ["Hive", "标准地址库召回"],
     ["MGeo", "地址要素拆分"],
     ["修复", "Qwen修复清洗结果"],
     ["Qwen", "候选择优/拒识"],
@@ -648,8 +643,8 @@ function stageLabel(stage: string) {
     start: "开始",
     clean: "清洗",
     recall: "召回",
+    hive: "Hive",
     rank: "排序",
-    map_api: "地图",
     mgeo: "MGeo",
     repair: "修复",
     qwen: "Qwen",
@@ -696,7 +691,6 @@ function resultStatusClass(row: RowProgress) {
 
 function sourceLabel(source?: string) {
   const labels: Record<string, string> = {
-    map_api: "地图API",
     poi: "POI快照",
     memory: "记忆库",
     standard: "标准库",

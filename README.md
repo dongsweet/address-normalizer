@@ -1,116 +1,126 @@
-# Address Normalizer Demo
+# Address Normalizer
 
-乌鲁木齐外卖地址规范化演示系统。目标是把用户输入的脏地址批量转换成可匹配、可审计的结构化结果。
+乌鲁木齐地址规范化工作台，面向公安内网联调版本。系统把用户输入的脏地址转换成可匹配、可审计的结构化结果，并尽量在进入内网前把 Hive 标准地址链路跑通。
 
 ## Architecture
 
 - Frontend: React + Vite + TypeScript
 - Backend: FastAPI + Pydantic
-- Database: PostgreSQL + PostGIS + pg_trgm
-- POI candidate data: Overture public snapshot for Urumqi
-- Optional adapters: Qwen vLLM API, MGeo worker, map API
+- Business DB: PostgreSQL + PostGIS + pg_trgm
+- Standard address source: HiveServer2
+- Optional context adapters: Qwen OpenAI-compatible API, MGeo worker
+- Local recall data: public POI snapshot + business memory
 
-The data layer is split into three logical libraries:
+当前主召回链路：
 
-- `poi_catalog`: public or licensed POI candidates
-- `address_memory`: business-confirmed address memory
-- `standard_address`: optional authority/customer standard-address table
-
-`standard_address` can stay empty. The pipeline skips it when no rows exist.
-
-## VM Size
-
-For a demo where Qwen is already hosted elsewhere, 4 CPU cores and 16 GB RAM are enough for:
-
-- PostgreSQL/PostGIS
-- FastAPI
-- Vite frontend
-- optional CPU MGeo worker for small batches
-
-MGeo should remain optional because CPU inference may be slow.
+1. `address_memory`
+2. Hive 标准地址表 `ysk_datahub_address_standed`
+3. `poi_catalog`
+4. Qwen 候选选择或拒识
 
 ## Run With Docker Compose
 
-Create `.env` from the example:
+先从示例配置生成 `.env`：
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Start the stack:
+启动主应用栈和模拟 Hive：
 
 ```powershell
-docker compose up --build
+docker compose -f docker-compose.yml -f docker-compose.hive.yml up --build
 ```
 
-To include the optional MGeo CPU worker:
+如果需要同时带上 MGeo：
 
 ```powershell
-docker compose --profile mgeo up --build
+docker compose -f docker-compose.yml -f docker-compose.hive.yml --profile mgeo up --build
 ```
 
-Open:
+打开：
 
 ```text
 http://localhost:5173
 ```
 
-API docs:
+API 文档：
 
 ```text
 http://localhost:8000/docs
 ```
 
-If the VM only exposes SSH, create a local tunnel from your laptop:
+如果测试机只开放 SSH，可以建立本地隧道：
 
 ```powershell
 ssh -L 5173:127.0.0.1:5173 -L 8000:127.0.0.1:8000 -p 1205 dq@172.20.30.201
 ```
 
-Then open `http://localhost:5173`.
+## Simulated Hive
 
-On first API startup, the backend creates PostGIS/pg_trgm extensions, creates tables, and seeds:
+`docker-compose.hive.yml` 提供一套独立的 Hive 模拟环境，包含：
+
+- `hive-metastore-postgres`
+- `hive-metastore`
+- `hive`
+- `hive-init`
+
+初始化脚本会创建并装载：
 
 ```text
-data/public_poi/urumqi_overture_poi_sample.csv
+default.ysk_datahub_address_standed
 ```
 
-## Batch Progress And Speed Controls
-
-The web UI uses the streaming endpoint:
+样例数据文件位于：
 
 ```text
-POST /api/normalize/stream
+data/hive_sim/ysk_datahub_address_standed.tsv
 ```
 
-It returns newline-delimited JSON progress events for each row, including stages such as recall, MGeo, Qwen, fast path, and done. The UI also lets the operator choose batch concurrency from 1 to 4.
+它覆盖了这些典型场景：
 
-High-confidence matches can skip MGeo/Qwen to reduce latency:
+- 标准地址和源地址不一致
+- 同名 POI 歧义
+- 门牌号、楼栋、单元、楼层、房号
+- `poi/community` 缺失时的名称回退
+- 空字段和业务区域字段
 
-```env
-MAX_BATCH_CONCURRENCY=4
-FAST_PATH_ENABLED=true
-FAST_PATH_SCORE=0.9
-FAST_PATH_GAP=0.12
-```
+## Configuration
 
-The older `POST /api/normalize/batch` endpoint is still available and also accepts `concurrency`.
+### Qwen
 
-## Qwen Configuration
-
-If the existing vLLM service exposes an OpenAI-compatible endpoint, set:
+继续按 OpenAI 兼容接口接入：
 
 ```env
 QWEN_BASE_URL=http://your-qwen-host:port/v1
-QWEN_API_KEY=your-key
+QWEN_API_KEY=
 QWEN_MODEL=your-model-name
 ```
 
-If these are empty, the demo still works with deterministic scoring.
+`QWEN_API_KEY` 可以留空；留空时不会发送 `Authorization` 请求头。
 
-## MGeo Configuration
+### Hive
 
-MGeo is packaged as an optional HTTP worker. It uses ModelScope's Chinese geographic element tagging model and exposes `POST /parse` on the internal Compose network.
+开发测试默认配置已经指向模拟 Hive：
+
+```env
+HIVE_ENABLED=true
+HIVE_HOST=hive
+HIVE_PORT=10000
+HIVE_DATABASE=default
+HIVE_TABLE=ysk_datahub_address_standed
+HIVE_USERNAME=hive
+HIVE_PASSWORD=changeme
+HIVE_AUTH_MECHANISM=NOSASL
+HIVE_QUERY_TIMEOUT_SECONDS=8
+HIVE_FETCH_LIMIT=20
+```
+
+进入内网后，只需要把这些值改成目标环境即可。仓库不会保存真实密码。
+
+### MGeo
+
+MGeo 仍然是可选组件，只在启用 Qwen 时为模型补充地址要素上下文：
 
 ```env
 MGEO_ENABLED=true
@@ -120,32 +130,61 @@ MGEO_MODEL_ID=iic/mgeo_geographic_elements_tagging_chinese_base
 MGEO_MODEL_REVISION=
 ```
 
-The worker is CPU-only. The first startup downloads and warms the model, so the first run can take several minutes. Parsed address elements are sent to Qwen as extra context and are included in `raw_model_output.mgeo`.
+## Status And Progress
 
-## Map API Configuration
+前端会读取：
 
-The map adapter is optional. Demo runs without it.
-
-```env
-MAP_API_ENABLED=true
-MAP_PROVIDER=amap
-AMAP_KEY=your-key
+```text
+GET /api/config/status
 ```
 
-Map API results are treated as runtime candidates. The adapter only keeps sanitized matching fields such as provider id, adcode, category, coordinates, and normalized display address; it does not return or persist the provider's full raw POI payload. Do not persist provider POI data unless the commercial contract explicitly allows it.
+当前状态里会展示：
 
-## Rebuild Urumqi POI Snapshot
+- PostgreSQL 是否可用
+- Hive 是否已配置
+- 当前 Hive 表名
+- 今日 Hive 查询次数
+- 今日 Qwen 调用次数
+- POI / 记忆库 / 明细条数
 
-Install the small fetch dependency:
+批处理走流式接口：
+
+```text
+POST /api/normalize/stream
+```
+
+阶段名称包括：
+
+- `clean`
+- `recall`
+- `hive`
+- `rank`
+- `mgeo`
+- `repair`
+- `qwen`
+- `fast_path`
+- `unmatched`
+- `done`
+
+## Acceptance Checklist
+
+1. 启动 `docker-compose.yml + docker-compose.hive.yml`
+2. 打开 `/api/config/status`，确认 `hive=configured`
+3. 在前端跑一批模拟地址
+4. 验证主结果来源为 `standard`
+5. 验证高置信标准库命中可自动沉淀到记忆库
+6. 把 Hive 配置改成接近真实内网的占位值，确认应用仍可启动，并在查询时给出可理解的失败提示
+
+## Rebuild Public POI Snapshot
+
+安装抓取脚本依赖：
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-Regenerate the current sample:
+重新生成乌鲁木齐示例 POI：
 
 ```powershell
 python scripts\fetch_public_poi.py --limit 500
 ```
-
-The current Overture snapshot yields 173 usable Urumqi rows in the default bbox.

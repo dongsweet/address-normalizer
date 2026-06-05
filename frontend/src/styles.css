@@ -490,11 +490,6 @@ td:nth-child(6) {
   background: #ffe8b3;
 }
 
-.sourceBadge.map_api {
-  color: #6a3d00;
-  background: #ffe8b3;
-}
-
 .sourceBadge.poi {
   color: #0d5261;
   background: #dff4f8;

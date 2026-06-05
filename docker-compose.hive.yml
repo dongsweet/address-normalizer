@@ -1,0 +1,73 @@
+services:
+  hive-metastore-postgres:
+    image: postgres:16-alpine
+    container_name: address-normalizer-hive-metastore-db
+    environment:
+      POSTGRES_DB: metastore
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive
+    volumes:
+      - hive_metastore_pg:/var/lib/postgresql/data
+
+  hive-metastore:
+    image: apache/hive:4.0.0
+    container_name: address-normalizer-hive-metastore
+    environment:
+      SERVICE_NAME: metastore
+      DB_DRIVER: postgres
+      SERVICE_OPTS: >-
+        -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
+        -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://hive-metastore-postgres:5432/metastore
+        -Djavax.jdo.option.ConnectionUserName=hive
+        -Djavax.jdo.option.ConnectionPassword=hive
+      IS_RESUME: "true"
+    depends_on:
+      - hive-metastore-postgres
+
+  hive:
+    image: apache/hive:4.0.0
+    container_name: address-normalizer-hive
+    environment:
+      SERVICE_NAME: hiveserver2
+      DB_DRIVER: postgres
+      SERVICE_OPTS: >-
+        -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
+        -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://hive-metastore-postgres:5432/metastore
+        -Djavax.jdo.option.ConnectionUserName=hive
+        -Djavax.jdo.option.ConnectionPassword=hive
+      IS_RESUME: "true"
+      HIVE_METASTORE_URI: thrift://hive-metastore:9083
+    ports:
+      - "127.0.0.1:10000:10000"
+    volumes:
+      - hive_warehouse:/opt/hive/data/warehouse
+      - ./data/hive_sim:/opt/hive/data
+      - ./hive/init:/opt/hive/init
+    depends_on:
+      - hive-metastore
+
+  hive-init:
+    image: apache/hive:4.0.0
+    container_name: address-normalizer-hive-init
+    restart: "no"
+    environment:
+      HIVE_USER: ${HIVE_USERNAME:-hive}
+      HIVE_PASSWORD: ${HIVE_PASSWORD:-changeme}
+    volumes:
+      - ./data/hive_sim:/opt/hive/data
+      - ./hive/init:/opt/hive/init
+    depends_on:
+      - hive
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        until beeline -u jdbc:hive2://hive:10000/default -n "$$HIVE_USER" -p "$$HIVE_PASSWORD" -e "SHOW DATABASES;" >/tmp/hive-init.log 2>&1; do
+          cat /tmp/hive-init.log || true
+          sleep 5
+        done
+        beeline -u jdbc:hive2://hive:10000/default -n "$$HIVE_USER" -p "$$HIVE_PASSWORD" -f /opt/hive/init/001_init_hive.sql
+
+volumes:
+  hive_metastore_pg:
+  hive_warehouse:

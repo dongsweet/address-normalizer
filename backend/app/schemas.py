@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-CandidateSource = Literal["memory", "standard", "poi", "map_api", "qwen"]
+CandidateSource = Literal["memory", "standard", "poi", "qwen"]
 
 
 class AddressCandidate(BaseModel):
@@ -45,7 +45,6 @@ class NormalizedAddress(BaseModel):
 class NormalizeBatchRequest(BaseModel):
     addresses: list[str] = Field(min_length=1, max_length=200)
     use_qwen: bool = True
-    use_map_api: bool = True
     persist_job: bool = True
     auto_persist_memory: bool = False
     concurrency: int = Field(default=1, ge=1, le=8)
@@ -71,14 +70,14 @@ class ConfigStatus(BaseModel):
     database: str
     qwen: str
     mgeo: str
-    map_api: str
-    standard_address: str
+    hive: str
+    hive_table: str | None = None
     poi_rows: int
     memory_rows: int
     memory_alias_rows: int = 0
     memory_detail_rows: int = 0
     default_city: str
-    map_api_calls_today: int = 0
+    hive_calls_today: int = 0
     qwen_calls_today: int = 0
 
 

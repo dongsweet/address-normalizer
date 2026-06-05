@@ -38,14 +38,19 @@ services:
       QWEN_BASE_URL: ${QWEN_BASE_URL:-}
       QWEN_API_KEY: ${QWEN_API_KEY:-}
       QWEN_MODEL: ${QWEN_MODEL:-qwen3.6-27b}
+      HIVE_ENABLED: ${HIVE_ENABLED:-true}
+      HIVE_HOST: ${HIVE_HOST:-hive}
+      HIVE_PORT: ${HIVE_PORT:-10000}
+      HIVE_DATABASE: ${HIVE_DATABASE:-default}
+      HIVE_TABLE: ${HIVE_TABLE:-ysk_datahub_address_standed}
+      HIVE_USERNAME: ${HIVE_USERNAME:-hive}
+      HIVE_PASSWORD: ${HIVE_PASSWORD:-changeme}
+      HIVE_AUTH_MECHANISM: ${HIVE_AUTH_MECHANISM:-NOSASL}
+      HIVE_QUERY_TIMEOUT_SECONDS: ${HIVE_QUERY_TIMEOUT_SECONDS:-8}
+      HIVE_FETCH_LIMIT: ${HIVE_FETCH_LIMIT:-20}
       MGEO_ENABLED: ${MGEO_ENABLED:-false}
       MGEO_URL: ${MGEO_URL:-http://mgeo:8090}
       MGEO_TIMEOUT_SECONDS: ${MGEO_TIMEOUT_SECONDS:-60}
-      MAP_API_ENABLED: ${MAP_API_ENABLED:-false}
-      MAP_PROVIDER: ${MAP_PROVIDER:-none}
-      AMAP_KEY: ${AMAP_KEY:-}
-      BAIDU_AK: ${BAIDU_AK:-}
-      TENCENT_KEY: ${TENCENT_KEY:-}
     ports:
       - "8000:8000"
     depends_on:

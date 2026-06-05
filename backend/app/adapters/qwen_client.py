@@ -140,7 +140,9 @@ class QwenClient:
                 {"role": "user", "content": json.dumps(user_prompt, ensure_ascii=False)},
             ],
         }
-        headers = {"Authorization": f"Bearer {self.settings.qwen_api_key}"}
+        headers = {}
+        if self.settings.qwen_api_key:
+            headers["Authorization"] = f"Bearer {self.settings.qwen_api_key}"
         http_status: int | None = None
         try:
             async with httpx.AsyncClient(timeout=self.settings.qwen_timeout_seconds) as client:

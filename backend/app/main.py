@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import StreamingResponse
 
-from app.adapters.map_client import MapClient
+from app.adapters.hive_client import HiveClient
 from app.adapters.mgeo_client import MGeoClient
 from app.adapters.qwen_client import QwenClient
 from app.agent.orchestrator import AddressAgent
@@ -31,12 +31,12 @@ from app.schemas import (
 settings: Settings = get_settings()
 db = Database(settings.database_url)
 qwen = QwenClient(settings, db)
-map_client = MapClient(settings, db)
+hive = HiveClient(settings, db)
 mgeo = MGeoClient(settings.mgeo_url, settings.mgeo_enabled, settings.mgeo_timeout_seconds)
-agent = AddressAgent(settings, db, qwen, map_client, mgeo)
+agent = AddressAgent(settings, db, qwen, hive, mgeo)
 AUTO_PERSIST_WARNING = "已自动沉淀到记忆库"
-AUTO_PERSIST_SOURCES = {"map_api"}
-MAP_API_AUTO_PERSIST_MIN_CONFIDENCE = 0.95
+AUTO_PERSIST_SOURCES = {"standard"}
+STANDARD_AUTO_PERSIST_MIN_CONFIDENCE = 0.95
 
 
 @asynccontextmanager
@@ -68,26 +68,26 @@ def config_status() -> ConfigStatus:
     today = datetime.now(UTC).date().isoformat()
     try:
         status = db.status()
-        map_api_calls_today = db.get_api_call_count("amap", today, today)
+        hive_calls_today = db.get_api_call_count("hive", today, today)
         qwen_calls_today = db.get_api_call_count("qwen", today, today)
         database_state = "configured"
     except Exception:  # noqa: BLE001
         status = {"poi_rows": 0, "memory_rows": 0, "memory_alias_rows": 0, "memory_detail_rows": 0, "standard_rows": 0}
-        map_api_calls_today = 0
+        hive_calls_today = 0
         qwen_calls_today = 0
         database_state = "unavailable"
     return ConfigStatus(
         database=database_state,
         qwen="configured" if settings.qwen_configured else "disabled",
         mgeo="configured" if mgeo.enabled else "disabled",
-        map_api="configured" if settings.map_configured else "disabled",
-        standard_address="configured" if status.get("standard_rows", 0) else "missing",
+        hive="configured" if settings.hive_configured else "disabled",
+        hive_table=settings.hive_table if settings.hive_configured else None,
         poi_rows=status.get("poi_rows", 0),
         memory_rows=status.get("memory_rows", 0),
         memory_alias_rows=status.get("memory_alias_rows", 0),
         memory_detail_rows=status.get("memory_detail_rows", 0),
         default_city=settings.default_city,
-        map_api_calls_today=map_api_calls_today,
+        hive_calls_today=hive_calls_today,
         qwen_calls_today=qwen_calls_today,
     )
 
@@ -114,7 +114,7 @@ async def normalize_batch(request: NormalizeBatchRequest) -> NormalizeBatchRespo
 
     async def run_one(index: int, address: str) -> None:
         async with semaphore:
-            result = await agent.normalize_one(address, use_qwen=request.use_qwen, use_map_api=request.use_map_api)
+            result = await agent.normalize_one(address, use_qwen=request.use_qwen)
             auto_persisted = _try_auto_persist(result) if request.auto_persist_memory else False
             result.auto_persist_reason = _auto_persist_reason(result, request.auto_persist_memory, auto_persisted)
             results[index] = result
@@ -174,7 +174,6 @@ async def normalize_stream(request: NormalizeBatchRequest) -> StreamingResponse:
                     result = await agent.normalize_one(
                         address,
                         use_qwen=request.use_qwen,
-                        use_map_api=request.use_map_api,
                         progress=publish,
                     )
                     auto_persisted = _try_auto_persist(result) if request.auto_persist_memory else False
@@ -269,16 +268,16 @@ def _should_auto_persist(result: NormalizedAddress) -> bool:
         return False
     if result.source not in AUTO_PERSIST_SOURCES:
         return False
-    if result.confidence < max(settings.auto_memory_min_confidence, MAP_API_AUTO_PERSIST_MIN_CONFIDENCE):
+    if result.confidence < max(settings.auto_memory_min_confidence, STANDARD_AUTO_PERSIST_MIN_CONFIDENCE):
         return False
-    return _map_result_covers_input(result)
+    return _result_covers_input(result)
 
 
-def _map_result_covers_input(result: NormalizedAddress) -> bool:
-    return _map_input_residual(result) == ""
+def _result_covers_input(result: NormalizedAddress) -> bool:
+    return _input_residual(result) == ""
 
 
-def _map_input_residual(result: NormalizedAddress) -> str:
+def _input_residual(result: NormalizedAddress) -> str:
     input_key = _signal_key(result.cleaned_input or result.input)
     if not input_key:
         return ""
@@ -330,10 +329,10 @@ def _auto_persist_reason(result: NormalizedAddress, enabled: bool, persisted: bo
         return None
     if result.source not in AUTO_PERSIST_SOURCES:
         return f"当前仅对 {', '.join(sorted(AUTO_PERSIST_SOURCES))} 结果自动沉淀"
-    threshold = max(settings.auto_memory_min_confidence, MAP_API_AUTO_PERSIST_MIN_CONFIDENCE)
+    threshold = max(settings.auto_memory_min_confidence, STANDARD_AUTO_PERSIST_MIN_CONFIDENCE)
     if result.confidence < threshold:
         return f"置信度 {result.confidence:.3f} 未达到自动沉淀阈值 {threshold:.3f}"
-    residual = _map_input_residual(result)
+    residual = _input_residual(result)
     if residual:
         return f"输入里仍有未被最终结果覆盖的关键信号：{residual}"
     return "未满足自动沉淀条件"

@@ -11,7 +11,6 @@ export async function getConfigStatus(): Promise<ConfigStatus> {
 export async function normalizeBatch(
   addresses: string[],
   useQwen: boolean,
-  useMapApi: boolean,
   autoPersistMemory: boolean,
   concurrency = 2
 ): Promise<NormalizeBatchResponse> {
@@ -21,7 +20,6 @@ export async function normalizeBatch(
     body: JSON.stringify({
       addresses,
       use_qwen: useQwen,
-      use_map_api: useMapApi,
       auto_persist_memory: autoPersistMemory,
       persist_job: true,
       concurrency: concurrency
@@ -37,7 +35,6 @@ export async function normalizeBatch(
 export async function normalizeBatchStream(
   addresses: string[],
   useQwen: boolean,
-  useMapApi: boolean,
   autoPersistMemory: boolean,
   concurrency: number,
   onEvent: (event: NormalizeStreamEvent) => void
@@ -48,7 +45,6 @@ export async function normalizeBatchStream(
     body: JSON.stringify({
       addresses,
       use_qwen: useQwen,
-      use_map_api: useMapApi,
       auto_persist_memory: autoPersistMemory,
       persist_job: true,
       concurrency: concurrency

@@ -3,29 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>地址规范化方案讲解</title>
+    <title>公安内网版地址规范化说明</title>
     <style>
       :root {
-        color: #182026;
-        background: #f4f6f7;
-        font-family: Inter, "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif;
-        font-synthesis: none;
-        text-rendering: optimizeLegibility;
-        --ink: #182026;
-        --muted: #61707d;
+        --ink: #1d2a33;
+        --muted: #60717e;
         --line: #d5dde3;
-        --soft-line: #e5eaee;
         --paper: #ffffff;
-        --wash: #f9fbfc;
-        --primary: #1b6b82;
-        --primary-deep: #0d4150;
-        --green: #0e604e;
-        --green-bg: #e8f5ef;
-        --amber: #8a6200;
-        --amber-bg: #fff3d4;
-        --red: #8a1f16;
-        --red-bg: #ffe2df;
-        --blue-bg: #e8f1f5;
+        --wash: #f5f7f8;
+        --primary: #12606d;
+        --accent: #dfeff1;
+        --good: #0b6a54;
+        --good-bg: #e7f7ef;
       }
 
       * {
@@ -34,136 +23,115 @@
 
       body {
         margin: 0;
-        min-width: 320px;
+        color: var(--ink);
         background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(244, 246, 247, 0.96)),
-          repeating-linear-gradient(90deg, rgba(27, 107, 130, 0.045) 0, rgba(27, 107, 130, 0.045) 1px, transparent 1px, transparent 84px);
-      }
-
-      a {
-        color: inherit;
+          linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(245, 247, 248, 0.98)),
+          repeating-linear-gradient(90deg, rgba(18, 96, 109, 0.045) 0, rgba(18, 96, 109, 0.045) 1px, transparent 1px, transparent 78px);
+        font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
       }
 
       .page {
-        width: min(1180px, calc(100% - 32px));
+        width: min(1100px, calc(100% - 28px));
         margin: 0 auto;
-        padding: 24px 0 44px;
+        padding: 24px 0 40px;
       }
 
       .topbar {
         display: flex;
-        align-items: center;
         justify-content: space-between;
-        gap: 14px;
+        gap: 12px;
         margin-bottom: 18px;
       }
 
-      .backLink,
-      .sourceLink {
+      .link {
         display: inline-flex;
         align-items: center;
         min-height: 34px;
         padding: 0 12px;
         border: 1px solid var(--line);
-        border-radius: 6px;
+        border-radius: 8px;
         background: var(--paper);
-        color: #243540;
+        color: var(--ink);
         text-decoration: none;
         font-size: 14px;
       }
 
-      .hero {
-        display: grid;
-        grid-template-columns: minmax(0, 1.08fr) minmax(340px, 0.92fr);
-        gap: 18px;
-        align-items: stretch;
-        margin-bottom: 18px;
-      }
-
-      .heroText,
-      .heroExample,
+      .hero,
       .panel {
         border: 1px solid var(--line);
-        border-radius: 8px;
+        border-radius: 12px;
         background: rgba(255, 255, 255, 0.96);
         box-shadow: 0 1px 2px rgba(18, 32, 42, 0.06);
       }
 
-      .heroText {
-        padding: 26px;
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+        gap: 18px;
+        padding: 24px;
       }
 
       .eyebrow {
         color: var(--primary);
         font-size: 13px;
-        font-weight: 740;
-        letter-spacing: 0;
+        font-weight: 700;
       }
 
       h1 {
         margin: 10px 0 12px;
-        font-size: clamp(30px, 4.2vw, 54px);
-        line-height: 1.04;
-        letter-spacing: 0;
+        font-size: clamp(30px, 4vw, 48px);
+        line-height: 1.06;
       }
 
-      .lead {
-        max-width: 760px;
-        margin: 0;
-        color: #34434e;
-        font-size: 17px;
+      p {
         line-height: 1.72;
       }
 
-      .heroTags {
+      .lead {
+        margin: 0;
+        color: #33434f;
+        font-size: 17px;
+      }
+
+      .tags {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
-        margin-top: 20px;
+        margin-top: 18px;
       }
 
-      .tag {
+      .tag,
+      .pill {
         display: inline-flex;
         align-items: center;
         min-height: 28px;
-        padding: 3px 9px;
-        border: 1px solid #c9d3da;
-        border-radius: 6px;
-        background: #f9fbfc;
-        color: #34434e;
+        padding: 2px 10px;
+        border-radius: 999px;
         font-size: 13px;
       }
 
-      .heroExample {
-        display: grid;
-        align-content: center;
-        gap: 12px;
-        padding: 22px;
-      }
-
-      .addressBox {
-        padding: 14px;
-        border: 1px solid var(--soft-line);
-        border-radius: 8px;
+      .tag {
+        border: 1px solid var(--line);
         background: var(--wash);
       }
 
-      .addressBox span {
+      .box {
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--wash);
+      }
+
+      .box b {
         display: block;
-        margin-bottom: 6px;
-        color: var(--muted);
-        font-size: 12px;
+        margin-top: 6px;
+        font-size: 16px;
+        line-height: 1.6;
       }
 
-      .addressBox b {
-        color: var(--ink);
-        font-size: 17px;
-        line-height: 1.55;
-      }
-
-      .addressBox.output {
-        border-color: #9fd1bf;
-        background: var(--green-bg);
+      .box.good {
+        border-color: #9ecfb9;
+        background: var(--good-bg);
       }
 
       .sectionTitle {
@@ -178,220 +146,122 @@
 
       .flow {
         display: grid;
-        grid-template-columns: repeat(6, minmax(128px, 1fr));
+        grid-template-columns: repeat(6, minmax(0, 1fr));
         gap: 10px;
       }
 
       .step {
-        position: relative;
-        min-height: 170px;
+        min-height: 172px;
         padding: 14px;
         border: 1px solid var(--line);
-        border-radius: 8px;
+        border-radius: 10px;
         background: var(--paper);
       }
 
-      .step::after {
-        content: "";
-        position: absolute;
-        top: 50%;
-        right: -10px;
-        width: 10px;
-        height: 1px;
-        background: var(--line);
-      }
-
-      .step:last-child::after {
-        display: none;
-      }
-
-      .stepNumber {
+      .num {
         display: inline-grid;
         place-items: center;
-        width: 28px;
-        height: 28px;
+        width: 30px;
+        height: 30px;
         margin-bottom: 10px;
-        border-radius: 6px;
+        border-radius: 8px;
         background: var(--primary);
-        color: #ffffff;
+        color: #fff;
         font-weight: 800;
       }
 
-      .step h3 {
-        margin: 0 0 7px;
+      .step h3,
+      .card h3 {
+        margin: 0 0 8px;
         font-size: 16px;
       }
 
-      .step p {
+      .step p,
+      .card p,
+      td {
         margin: 0;
         color: var(--muted);
         font-size: 13px;
-        line-height: 1.62;
+        line-height: 1.66;
       }
 
-      .matrix {
+      .grid {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 12px;
       }
 
-      .dataCard {
+      .card {
         padding: 14px;
         border: 1px solid var(--line);
-        border-radius: 8px;
+        border-radius: 10px;
         background: var(--paper);
       }
 
-      .dataCard h3 {
-        margin: 0 0 8px;
-        font-size: 16px;
-      }
-
-      .dataCard p {
-        margin: 0;
-        color: var(--muted);
-        font-size: 13px;
-        line-height: 1.68;
-      }
-
-      .dataCard.critical {
-        border-color: #9dbdcc;
-        background: var(--blue-bg);
-      }
-
-      .tableWrap {
-        overflow-x: auto;
+      .card.emphasis {
+        background: var(--accent);
       }
 
       table {
         width: 100%;
-        min-width: 840px;
         border-collapse: collapse;
-        font-size: 14px;
       }
 
       th,
       td {
         padding: 12px;
-        border-bottom: 1px solid var(--soft-line);
+        border-bottom: 1px solid #e6ebef;
         text-align: left;
         vertical-align: top;
       }
 
       th {
-        color: #52616c;
         background: var(--wash);
-      }
-
-      td {
-        line-height: 1.58;
-      }
-
-      .pill {
-        display: inline-flex;
-        align-items: center;
-        min-height: 24px;
-        padding: 2px 7px;
-        border-radius: 6px;
-        font-size: 12px;
-        font-weight: 720;
+        color: #50616d;
+        font-size: 14px;
       }
 
       .pill.good {
-        background: var(--green-bg);
-        color: var(--green);
-      }
-
-      .pill.warn {
-        background: var(--amber-bg);
-        color: var(--amber);
-      }
-
-      .pill.no {
-        background: var(--red-bg);
-        color: var(--red);
-      }
-
-      .split {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-        gap: 12px;
-      }
-
-      .note {
-        padding: 14px;
-        border: 1px solid #e4c46e;
-        border-radius: 8px;
-        background: var(--amber-bg);
-        color: #5f4604;
-        font-size: 14px;
-        line-height: 1.7;
+        background: var(--good-bg);
+        color: var(--good);
+        font-weight: 700;
       }
 
       .code {
         padding: 14px;
         overflow-x: auto;
-        border: 1px solid var(--soft-line);
-        border-radius: 8px;
-        background: #101820;
-        color: #dbe9ef;
-        font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+        border-radius: 10px;
+        background: #0f1b22;
+        color: #d8ebef;
+        font-family: "JetBrains Mono", Consolas, monospace;
         font-size: 13px;
-        line-height: 1.6;
-      }
-
-      .sources {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
+        line-height: 1.62;
       }
 
       .footer {
-        margin-top: 24px;
+        margin-top: 8px;
         color: var(--muted);
         font-size: 13px;
-        line-height: 1.7;
       }
 
-      @media (max-width: 1080px) {
+      @media (max-width: 1040px) {
         .hero,
-        .split {
-          grid-template-columns: 1fr;
-        }
-
-        .flow {
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-        }
-
-        .step::after {
-          display: none;
-        }
-
-        .matrix {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+        .flow,
+        .grid {
+          grid-template-columns: 1fr 1fr;
         }
       }
 
-      @media (max-width: 680px) {
-        .page {
-          width: min(100% - 22px, 1180px);
-          padding-top: 12px;
+      @media (max-width: 760px) {
+        .hero,
+        .flow,
+        .grid {
+          grid-template-columns: 1fr;
         }
 
         .topbar {
-          align-items: flex-start;
           flex-direction: column;
-        }
-
-        .heroText,
-        .heroExample,
-        .panel {
-          padding: 14px;
-        }
-
-        .flow,
-        .matrix {
-          grid-template-columns: 1fr;
+          align-items: flex-start;
         }
       }
     </style>
@@ -399,204 +269,168 @@
   <body>
     <main class="page">
       <nav class="topbar" aria-label="页面导航">
-        <a class="backLink" href="/">返回工作台</a>
-        <a class="backLink" href="#budget">POI采购建议</a>
+        <a class="link" href="/">返回工作台</a>
+        <a class="link" href="#hive">模拟 Hive 说明</a>
       </nav>
 
       <section class="hero">
-        <div class="heroText">
-          <div class="eyebrow">面向外卖、即时配送、客户地址治理</div>
-          <h1>把模糊外卖地址，变成可匹配的标准化地址</h1>
+        <div>
+          <div class="eyebrow">公安内网适配版</div>
+          <h1>把模糊地址对齐到标准地址库，再让模型只做最后判断</h1>
           <p class="lead">
-            我们不让大模型凭空“编地址”。系统先用 POI 和记忆库找到可信锚点，再把楼栋、单元、楼层、房号作为明细补回去；
-            如果未来拿到公安或政务标准地址库，它会成为最终校准层。
+            这版不再依赖外部地图 API。系统先清洗输入，再查记忆库、Hive 标准地址表和本地 POI，最后才把候选交给
+            Qwen 选择或拒识，避免模型凭空编地址。
           </p>
-          <div class="heroTags">
-            <span class="tag">乌鲁木齐城市锁定</span>
-            <span class="tag">POI锚点召回</span>
-            <span class="tag">地图API可选补召回</span>
-            <span class="tag">Qwen只做候选选择/拒识</span>
-            <span class="tag">标准库可选增强</span>
+          <div class="tags">
+            <span class="tag">HiveServer2 标准地址库</span>
+            <span class="tag">Qwen OpenAI 兼容接口</span>
+            <span class="tag">记忆库自动沉淀</span>
+            <span class="tag">POI 作为本地补充候选</span>
           </div>
         </div>
-        <div class="heroExample">
-          <div class="addressBox">
-            <span>用户原始输入</span>
+        <div>
+          <div class="box">
+            原始输入
             <b>光明路北小区18栋1单元2层8号，骑手到了打电话</b>
           </div>
-          <div class="addressBox">
-            <span>系统先锁定锚点</span>
-            <b>新疆维吾尔自治区乌鲁木齐市天山区建工巷与红山路交叉口东南160米光明路北小区</b>
+          <div class="box">
+            标准地址候选
+            <b>新疆维吾尔自治区乌鲁木齐市天山区光明路北小区18栋-1单元-2楼-8号</b>
           </div>
-          <div class="addressBox output">
-            <span>最终规范结果</span>
-            <b>新疆维吾尔自治区乌鲁木齐市天山区建工巷与红山路交叉口东南160米光明路北小区18栋-1单元-2楼-8号</b>
+          <div class="box good">
+            最终结果
+            <b>标准库命中 + 明细保留 + 高置信自动沉淀到记忆库</b>
           </div>
         </div>
       </section>
 
-      <h2 class="sectionTitle">一次地址处理会经过哪些路径</h2>
+      <h2 class="sectionTitle">一次地址处理经过的阶段</h2>
       <section class="panel">
         <div class="flow">
           <div class="step">
-            <span class="stepNumber">1</span>
+            <span class="num">1</span>
             <h3>清洗输入</h3>
-            <p>去掉配送备注、电话、口语化噪声；保留真正可能影响地址定位的信息。</p>
+            <p>删除配送备注、动作说明和礼貌用语，只保留真正影响定位的地址主体。</p>
           </div>
           <div class="step">
-            <span class="stepNumber">2</span>
+            <span class="num">2</span>
             <h3>拆锚点和明细</h3>
-            <p>把“小区/门店/园区”与“18栋1单元2层8号”拆开，避免用房号污染召回。</p>
+            <p>把小区、门店、园区和楼栋单元楼层房号拆开，避免明细污染召回。</p>
           </div>
           <div class="step">
-            <span class="stepNumber">3</span>
-            <h3>本地候选召回</h3>
-            <p>优先查授权 POI、记忆库、标准库，命中高置信候选时直接跳过慢模型。</p>
+            <span class="num">3</span>
+            <h3>本地召回</h3>
+            <p>优先查记忆库和本地 POI，先利用已有业务沉淀和快照数据拿到便宜候选。</p>
           </div>
           <div class="step">
-            <span class="stepNumber">4</span>
-            <h3>地图API补召回</h3>
-            <p>本地找不到时再调地图 API，限制城市为乌鲁木齐，减少跨城市误召回。</p>
+            <span class="num">4</span>
+            <h3>Hive 标准库</h3>
+            <p>运行时直查 HiveServer2 标准地址表，映射成标准候选并参与统一排序。</p>
           </div>
           <div class="step">
-            <span class="stepNumber">5</span>
-            <h3>Qwen判别</h3>
-            <p>Qwen 不负责发明地址，只在候选里选最可信的一条，或者拒识。</p>
+            <span class="num">5</span>
+            <h3>Qwen 判别</h3>
+            <p>Qwen 只在候选里做选择或拒识，不允许创造新地址。</p>
           </div>
           <div class="step">
-            <span class="stepNumber">6</span>
+            <span class="num">6</span>
             <h3>输出和沉淀</h3>
-            <p>输出 JSON/单行地址；主记忆只存小区/POI锚点，房号明细单独沉淀。</p>
+            <p>标准库高置信结果可自动沉淀到记忆库，后续同类写法会越来越快。</p>
           </div>
         </div>
       </section>
 
-      <h2 class="sectionTitle">为什么 POI 数据是核心</h2>
-      <section class="matrix">
-        <div class="dataCard critical">
-          <h3>POI 是“现实世界锚点”</h3>
-          <p>外卖地址经常写“美美一楼”“云计算中心”“某小区东门”，这些不是门牌号，而是 POI 或商圈锚点。</p>
-        </div>
-        <div class="dataCard">
-          <h3>地图 API 适合补漏</h3>
-          <p>API 能补召回最新点位，但不适合把每个结果都当成本地数据库长期保存，授权边界要单独确认。</p>
-        </div>
-        <div class="dataCard">
-          <h3>授权 POI 适合做底座</h3>
-          <p>可本地索引、可批量召回、可审计版本；需要确认是否允许存储、检索、派生字段和内部服务使用。</p>
-        </div>
-        <div class="dataCard">
-          <h3>记忆库提升复用</h3>
-          <p>客户业务里反复出现的地址写法会沉淀下来，下一次直接命中，减少地图 API 和大模型调用。</p>
+      <h2 class="sectionTitle">现在系统里的几类数据</h2>
+      <section class="panel">
+        <div class="grid">
+          <div class="card emphasis">
+            <h3>Hive 标准地址库</h3>
+            <p>当前最重要的数据源。进入内网后，只要替换连接地址、用户名、密码和表名即可切到真实环境。</p>
+          </div>
+          <div class="card">
+            <h3>业务记忆库</h3>
+            <p>存放客户确认过的锚点和别名写法，解决高频地址反复命中的效率问题。</p>
+          </div>
+          <div class="card">
+            <h3>公共 POI 快照</h3>
+            <p>继续保留为本地补充候选，用来覆盖标准库之外的门店、商场、园区类写法。</p>
+          </div>
+          <div class="card">
+            <h3>MGeo + Qwen</h3>
+            <p>MGeo 负责补充地址要素上下文，Qwen 负责最终候选判别或拒识。</p>
+          </div>
         </div>
       </section>
 
-      <h2 class="sectionTitle">系统里的几类数据</h2>
-      <section class="panel tableWrap">
+      <h2 id="hive" class="sectionTitle">模拟 Hive 表结构</h2>
+      <section class="panel">
         <table>
           <thead>
             <tr>
-              <th>数据层</th>
-              <th>现在怎么用</th>
-              <th>对客户的价值</th>
-              <th>授权/风险点</th>
+              <th>字段</th>
+              <th>用途</th>
+              <th>映射到候选</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td><span class="pill good">公开POI快照</span></td>
-              <td>Demo 里用于乌鲁木齐 POI 抽样召回。</td>
-              <td>低成本证明流程，但覆盖率、鲜度、中文地址质量有限。</td>
-              <td>适合演示和技术验证，不建议直接承诺生产覆盖率。</td>
+              <td><span class="pill good">jxkid</span></td>
+              <td>标准地址主键</td>
+              <td>`candidate_id`</td>
             </tr>
             <tr>
-              <td><span class="pill good">授权POI库</span></td>
-              <td>未来作为主召回底座，存 POI 名称、地址、分类、经纬度、行政区、版本号。</td>
-              <td>提升命中率，减少地图 API 调用，支撑离线批处理和审计。</td>
-              <td>采购合同必须写清：本地存储、内部检索、更新频率、派生数据和脱敏沉淀权限。</td>
+              <td><span class="pill good">stand_address</span></td>
+              <td>标准地址</td>
+              <td>`full_address`</td>
             </tr>
             <tr>
-              <td><span class="pill warn">地图API</span></td>
-              <td>本地召回不足时补召回；Demo 可配置可关闭。</td>
-              <td>处理新开业、新改名、新园区等动态变化。</td>
-              <td>注意调用量、缓存期限、结果落库范围和服务条款。</td>
+              <td><span class="pill good">poi / community / road</span></td>
+              <td>名称回退链路</td>
+              <td>`name`</td>
             </tr>
             <tr>
-              <td><span class="pill good">业务记忆库</span></td>
-              <td>只存小区/POI锚点，不按房号膨胀。</td>
-              <td>让客户自己的地址写法越用越准，且成本可控。</td>
-              <td>应保留来源、命中次数、确认人和时间，便于回滚。</td>
+              <td><span class="pill good">city / county / town</span></td>
+              <td>行政区划</td>
+              <td>`city / district / town`</td>
             </tr>
             <tr>
-              <td><span class="pill good">房号明细库</span></td>
-              <td>单独记录楼栋、单元、楼层、房号的原始写法和规范写法。</td>
-              <td>后续可做“小区级房号写法规范化”，例如把“1-202”“1单202”“1单元202”统一。</td>
-              <td>避免把明细当锚点召回，防止旧房号和新房号串联。</td>
-            </tr>
-            <tr>
-              <td><span class="pill warn">标准地址库</span></td>
-              <td>当前可选；拿到后作为最终标准 ID 对齐层。</td>
-              <td>能输出标准地址 ID、行政区划、门楼牌，适合和公安/政务库做强匹配。</td>
-              <td>通常获取难、授权严，但一旦有，置信度和合规价值最高。</td>
+              <td><span class="pill good">xxdz / src_address / road_no / building / unit / floor / room</span></td>
+              <td>补充字段</td>
+              <td>`metadata`</td>
             </tr>
           </tbody>
         </table>
       </section>
 
-      <h2 id="budget" class="sectionTitle">POI 库该怎么买，预算怎么说</h2>
-      <section class="split">
-        <div class="panel">
-          <h3>建议采购形态</h3>
-          <p>
-            先按“乌鲁木齐城市级 POI 快照 + 定期更新 + 少量地图 API 校验包”采购，不建议一开始就买全国全量。
-            数据字段至少包括：POI ID、名称、别名、地址、经纬度、分类、区县/街道、更新时间、上下线状态、供应商版本号。
-          </p>
-          <p>
-            合同里重点看三句话：是否允许本地存储，是否允许内部检索服务使用，是否允许把客户确认后的锚点和脱敏明细沉淀为自有记忆。
-          </p>
-        </div>
-        <div class="panel">
-          <h3>预算口径</h3>
-          <p>
-            公开页面更多展示 API 计费、配额或企业服务入口，完整 POI 数据库通常需要商务询价。
-            给内部预算时，可以先按“单城市试点、年度授权、定期更新、API 调用包”询价；全国范围、实时更新、高并发 SLA 会明显增加成本。
-          </p>
-          <div class="note">
-            对外表述建议：Demo 使用公开 POI 快照和可选地图 API；生产建议采购授权 POI 库。具体金额以供应商正式报价为准，我们先按城市级试点做预算和合同条款评估。
-          </div>
-        </div>
-      </section>
-
-      <h2 class="sectionTitle">标准库能带来什么</h2>
+      <h2 class="sectionTitle">模拟环境里我们验证什么</h2>
       <section class="panel">
-        <div class="matrix">
-          <div class="dataCard">
-            <h3>从“像这个地址”变成“就是这个地址”</h3>
-            <p>POI 能帮我们找到锚点，标准地址库能给出最终标准 ID，这是匹配公安/政务数据库的关键。</p>
+        <div class="grid">
+          <div class="card">
+            <h3>标准地址完整命中</h3>
+            <p>确认 `stand_address` 能成为最终规范结果，并保留输入中的楼栋和房号明细。</p>
           </div>
-          <div class="dataCard">
-            <h3>置信度更可解释</h3>
-            <p>有标准库时，结果可以说明命中了哪条标准记录、哪个行政区、哪个门楼牌。</p>
+          <div class="card">
+            <h3>源地址与标准地址不同</h3>
+            <p>确认 `src_address` 只用于召回，最终输出仍以 `stand_address` 为准。</p>
           </div>
-          <div class="dataCard">
-            <h3>减少地图依赖</h3>
-            <p>高频地址进入标准库或记忆库后，地图 API 只处理新增和疑难样本。</p>
+          <div class="card">
+            <h3>同名 POI 歧义</h3>
+            <p>确认多个候选进入排序后，Qwen 只在候选内做选择，不自行扩写地址。</p>
           </div>
-          <div class="dataCard">
-            <h3>支持后续治理</h3>
-            <p>可统计小区常见房号写法、缺失街道、异常坐标、拒识地址，形成数据治理闭环。</p>
+          <div class="card">
+            <h3>服务不可达时降级</h3>
+            <p>确认 Hive 失败时流程不会整体报废，而是继续走记忆库、POI 和模型兜底。</p>
           </div>
         </div>
       </section>
 
-      <h2 class="sectionTitle">输出示例</h2>
+      <h2 class="sectionTitle">结果示例</h2>
       <section class="panel">
         <pre class="code">{
   "input": "光明路北小区18栋1单元2层8号",
-  "normalized_address": "新疆维吾尔自治区乌鲁木齐市天山区建工巷与红山路交叉口东南160米光明路北小区18栋-1单元-2楼-8号",
-  "source": "memory",
+  "normalized_address": "新疆维吾尔自治区乌鲁木齐市天山区光明路北小区18栋-1单元-2楼-8号",
+  "source": "standard",
   "components": {
-    "province": "新疆维吾尔自治区",
     "city": "乌鲁木齐市",
     "district": "天山区",
     "name": "光明路北小区",
@@ -607,20 +441,7 @@
   },
   "warnings": ["已自动沉淀到记忆库"]
 }</pre>
-      </section>
-
-      <h2 class="sectionTitle">资料来源和后续询价入口</h2>
-      <section class="panel">
-        <div class="sources">
-          <a class="sourceLink" href="https://overturemaps.org/" target="_blank" rel="noreferrer">Overture Maps 公开数据</a>
-          <a class="sourceLink" href="https://lbs.amap.com/" target="_blank" rel="noreferrer">高德开放平台</a>
-          <a class="sourceLink" href="https://lbs.baidu.com/" target="_blank" rel="noreferrer">百度地图开放平台</a>
-          <a class="sourceLink" href="https://lbs.qq.com/" target="_blank" rel="noreferrer">腾讯位置服务</a>
-          <a class="sourceLink" href="https://www.navinfo.com/" target="_blank" rel="noreferrer">四维图新</a>
-        </div>
-        <p class="footer">
-          页面中的金额口径用于内部预算沟通，不等同于供应商报价。正式采购前，需要拿到供应商对“POI快照、更新频率、本地存储、内部检索、脱敏沉淀、地图API调用包”的书面授权说明。
-        </p>
+        <p class="footer">这个页面对应当前仓库的 Hive 模拟版方案，不再描述外部地图 API 采购或高德接入。</p>
       </section>
     </main>
   </body>

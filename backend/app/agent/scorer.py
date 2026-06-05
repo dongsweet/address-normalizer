@@ -11,7 +11,6 @@ SOURCE_BOOSTS = {
     "memory": 0.16,
     "standard": 0.18,
     "poi": 0.04,
-    "map_api": 0.06,
 }
 
 
@@ -61,8 +60,6 @@ def score_candidate(raw: str, cleaned: str, candidate: AddressCandidate) -> Addr
     if relaxed_name_key and relaxed_name_key in relaxed_query_key:
         name_boost = max(name_boost, 0.28)
     candidate.score = clamp_score(max(db_score, fuzzy * 0.92) + source_boost + name_boost)
-    if candidate.source == "map_api" and relaxed_name_key and relaxed_name_key in relaxed_query_key:
-        candidate.score = max(candidate.score, 0.94)
     return candidate
 
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,18 +25,21 @@ class Settings(BaseSettings):
     cleaning_repair_enabled: bool = True
     cleaning_repair_min_score: float = 0.86
 
+    hive_enabled: bool = False
+    hive_host: str | None = None
+    hive_port: int = 10000
+    hive_database: str = "default"
+    hive_table: str = "ysk_datahub_address_standed"
+    hive_username: str | None = None
+    hive_password: str | None = None
+    hive_auth_mechanism: str = "NOSASL"
+    hive_query_timeout_seconds: float = 8.0
+    hive_fetch_limit: int = 20
+
     mgeo_enabled: bool = False
     mgeo_url: str | None = None
     mgeo_timeout_seconds: float = 10.0
 
-    map_api_enabled: bool = False
-    map_provider: str = Field(default="none", pattern="^(none|amap|baidu|tencent)$")
-    amap_key: str | None = None
-    baidu_ak: str | None = None
-    tencent_key: str | None = None
-    map_api_timeout_seconds: float = 8.0
-    map_api_daily_quota: int | None = None
-    map_api_monthly_quota: int | None = None
     qwen_daily_quota: int | None = None
     qwen_monthly_quota: int | None = None
 
@@ -58,19 +60,11 @@ class Settings(BaseSettings):
 
     @property
     def qwen_configured(self) -> bool:
-        return bool(self.qwen_base_url and self.qwen_api_key and self.qwen_model)
+        return bool(self.qwen_base_url and self.qwen_model)
 
     @property
-    def map_configured(self) -> bool:
-        if not self.map_api_enabled or self.map_provider == "none":
-            return False
-        if self.map_provider == "amap":
-            return bool(self.amap_key)
-        if self.map_provider == "baidu":
-            return bool(self.baidu_ak)
-        if self.map_provider == "tencent":
-            return bool(self.tencent_key)
-        return False
+    def hive_configured(self) -> bool:
+        return bool(self.hive_enabled and self.hive_host and self.hive_table and self.hive_database)
 
 
 @lru_cache

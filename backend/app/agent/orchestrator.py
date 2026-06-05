@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from app.adapters.map_client import MapClient
+from app.adapters.hive_client import HiveClient
 from app.adapters.mgeo_client import MGeoClient
 from app.adapters.qwen_client import QwenClient
 from app.agent.cleaner import clean_address
@@ -35,20 +35,19 @@ class AddressAgent:
         settings: Settings,
         db: Database,
         qwen: QwenClient,
-        map_client: MapClient,
+        hive: HiveClient,
         mgeo: MGeoClient,
     ) -> None:
         self.settings = settings
         self.db = db
         self.qwen = qwen
-        self.map_client = map_client
+        self.hive = hive
         self.mgeo = mgeo
 
     async def normalize_one(
         self,
         raw_address: str,
         use_qwen: bool,
-        use_map_api: bool,
         progress: ProgressCallback | None = None,
     ) -> NormalizedAddress:
         _emit(progress, "clean", "清洗输入")
@@ -70,7 +69,6 @@ class AddressAgent:
             raw_address=raw_address,
             cleaned=cleaned,
             use_qwen=use_qwen,
-            use_map_api=use_map_api,
             progress=progress,
         )
 
@@ -89,7 +87,6 @@ class AddressAgent:
                     raw_address=raw_address,
                     cleaned=repaired_cleaned,
                     use_qwen=use_qwen,
-                    use_map_api=use_map_api,
                     progress=progress,
                 )
                 attempt.warnings.insert(0, _clean_repair_warning(repair_payload, repaired_cleaned))
@@ -134,46 +131,31 @@ class AddressAgent:
         raw_address: str,
         cleaned: str,
         use_qwen: bool,
-        use_map_api: bool,
         progress: ProgressCallback | None,
     ) -> PipelineAttempt:
         warnings: list[str] = []
         recall_query, input_detail = _split_input_detail(cleaned)
         recall_queries = _unique_texts([cleaned, recall_query])
 
-        _emit(progress, "recall", "召回记忆库、标准库和POI候选")
+        _emit(progress, "recall", "召回记忆库和POI候选")
         candidates: list[AddressCandidate] = []
         for query in recall_queries:
             candidates.extend(self.db.search_memory(query, self.settings.candidate_limit))
-            candidates.extend(self.db.search_standard(query, self.settings.candidate_limit))
             candidates.extend(self.db.search_poi(query, self.settings.default_city, self.settings.candidate_limit * 2))
+
+        if self.hive.enabled:
+            _emit(progress, "hive", "查询标准地址库")
+            for query in recall_queries:
+                try:
+                    candidates.extend(await self.hive.search(query, self.settings.default_city, self.settings.candidate_limit))
+                except Exception as exc:  # noqa: BLE001
+                    warnings.append(f"标准地址库查询失败: {exc}")
+                    break
 
         _emit(progress, "rank", "本地候选排序")
         ranked = _rank_unique_candidates(raw_address, cleaned, candidates, self.settings.candidate_limit)
 
         mgeo_payload = None
-        if use_map_api and self.settings.map_configured and (not ranked or ranked[0].score < 0.72):
-            if self.mgeo.enabled:
-                _emit(progress, "mgeo", "解析地址要素用于地图召回")
-                try:
-                    mgeo_payload = await self.mgeo.parse(cleaned)
-                    if mgeo_payload:
-                        warnings.append("MGeo解析结果已附加到模型上下文")
-                except Exception as exc:  # noqa: BLE001
-                    warnings.append(f"MGeo解析失败: {exc}")
-            _emit(progress, "map_api", "本地候选不足，调用地图API补召回")
-            try:
-                map_candidates = await self.map_client.search_many(
-                    _map_queries(recall_query or cleaned, mgeo_payload, self.settings.default_city),
-                    self.settings.default_city,
-                    self.settings.candidate_limit,
-                )
-                if not map_candidates:
-                    warnings.append("地图API未召回候选")
-                ranked = _rank_unique_candidates(raw_address, cleaned, ranked + map_candidates, self.settings.candidate_limit)
-            except Exception as exc:  # noqa: BLE001
-                warnings.append(f"地图API调用失败: {exc}")
-
         fast_path_candidate = _fast_path_candidate(ranked, self.settings)
         if fast_path_candidate:
             warnings.append("高置信候选直接命中，跳过Qwen" if mgeo_payload else "高置信候选直接命中，跳过MGeo和Qwen")
@@ -190,7 +172,7 @@ class AddressAgent:
                 input_detail=input_detail,
             )
 
-        if use_qwen and self.settings.qwen_configured and ranked:
+        if use_qwen and self.settings.qwen_configured and ranked and self.mgeo.enabled:
             if not mgeo_payload:
                 _emit(progress, "mgeo", "解析地址要素")
                 try:
@@ -620,26 +602,6 @@ def _details_overlap(left: dict[str, str], right: dict[str, str]) -> bool:
 
 def _detail_part_key(value: str) -> str:
     return re.sub(r"(室|房|号房|号)$", "", _identity_text(value))
-
-
-def _map_queries(cleaned: str, mgeo_payload: dict[str, Any] | None, default_city: str) -> list[str]:
-    queries = [cleaned]
-    components = (mgeo_payload or {}).get("components") or {}
-    for key in ("poi", "road", "community"):
-        for value in _component_values(components.get(key)):
-            queries.append(value)
-            if default_city and default_city not in value:
-                queries.append(f"{default_city}{value}")
-    return queries
-
-
-def _component_values(value: Any) -> list[str]:
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, list):
-        return [item for item in value if isinstance(item, str) and item.strip()]
-    return []
-
 
 def _selected_result(
     raw_address: str,
