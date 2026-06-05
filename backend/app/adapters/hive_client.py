@@ -101,7 +101,7 @@ class HiveClient:
         table = _safe_identifier(self.settings.hive_table)
         like_query = _like_literal(query)
         predicates = [
-            f"lower(coalesce(`{column}`, '')) like lower('{like_query}') escape '\\\\'" for column in HIVE_SEARCH_COLUMNS
+            f"lower(coalesce(`{column}`, '')) like lower('{like_query}')" for column in HIVE_SEARCH_COLUMNS
         ]
         where_clauses = [f"({' OR '.join(predicates)})"]
         target_city = city or self.settings.default_city
@@ -226,5 +226,4 @@ def _string_literal(value: str) -> str:
 
 def _like_literal(value: str) -> str:
     escaped = _string_literal(value)
-    escaped = escaped.replace("%", "\\%").replace("_", "\\_")
     return f"%{escaped}%"

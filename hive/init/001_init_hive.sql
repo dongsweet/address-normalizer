@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS default.ysk_datahub_address_standed (
   poi STRING,
   building STRING,
   `unit` STRING,
-  floor STRING,
+  `floor` STRING,
   room STRING,
   part_path STRING
 )
