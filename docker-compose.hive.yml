@@ -10,7 +10,10 @@ services:
       - hive_metastore_pg:/var/lib/postgresql/data
 
   hive-metastore:
-    image: apache/hive:4.0.0
+    build:
+      context: .
+      dockerfile: hive/Dockerfile
+    image: address-normalizer-hive-base
     container_name: address-normalizer-hive-metastore
     environment:
       SERVICE_NAME: metastore
@@ -25,7 +28,7 @@ services:
       - hive-metastore-postgres
 
   hive:
-    image: apache/hive:4.0.0
+    image: address-normalizer-hive-base
     container_name: address-normalizer-hive
     environment:
       SERVICE_NAME: hiveserver2
@@ -45,9 +48,17 @@ services:
       - ./hive/init:/opt/hive/init
     depends_on:
       - hive-metastore
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/hive/bin/beeline -u jdbc:hive2://127.0.0.1:10000/default -n ${HIVE_USERNAME:-hive} -p ${HIVE_PASSWORD:-changeme} -e "SHOW DATABASES;" >/tmp/hive-health.log 2>&1
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
 
   hive-init:
-    image: apache/hive:4.0.0
+    image: address-normalizer-hive-base
     container_name: address-normalizer-hive-init
     restart: "no"
     environment:
@@ -57,16 +68,17 @@ services:
       - ./data/hive_sim:/opt/hive/data
       - ./hive/init:/opt/hive/init
     depends_on:
-      - hive
+      hive:
+        condition: service_healthy
     command:
       - /bin/bash
       - -lc
       - |
-        until beeline -u jdbc:hive2://hive:10000/default -n "$$HIVE_USER" -p "$$HIVE_PASSWORD" -e "SHOW DATABASES;" >/tmp/hive-init.log 2>&1; do
+        until /opt/hive/bin/beeline -u jdbc:hive2://hive:10000/default -n "$$HIVE_USER" -p "$$HIVE_PASSWORD" -e "SHOW DATABASES;" >/tmp/hive-init.log 2>&1; do
           cat /tmp/hive-init.log || true
           sleep 5
         done
-        beeline -u jdbc:hive2://hive:10000/default -n "$$HIVE_USER" -p "$$HIVE_PASSWORD" -f /opt/hive/init/001_init_hive.sql
+        /opt/hive/bin/beeline -u jdbc:hive2://hive:10000/default -n "$$HIVE_USER" -p "$$HIVE_PASSWORD" -f /opt/hive/init/001_init_hive.sql
 
 volumes:
   hive_metastore_pg:
