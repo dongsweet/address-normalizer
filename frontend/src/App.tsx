@@ -206,16 +206,11 @@ export function App() {
           <div className="subtle">多城市 · Hive标准地址库 · 记忆沉淀</div>
         </div>
         <div className="statusRow">
-          <StatusPill label="PG" value={status?.database ?? "unknown"} />
-          <StatusPill label="POI" value={status ? `${status.poi_rows}` : "0"} />
+          <StatusPill label="POI" value={status ? (status.poi_rows > 0 ? "present" : "missing") : "unknown"} />
           <StatusPill label="记忆" value={status ? `${status.memory_rows}` : "0"} />
           <StatusPill label="别名" value={status ? `${status.memory_alias_rows}` : "0"} />
           <StatusPill label="明细" value={status ? `${status.memory_detail_rows}` : "0"} />
-          <StatusPill label="Hive" value={status?.hive ?? "disabled"} />
-          <StatusPill label="范围" value={status?.recall_scope_mode ?? "unknown"} />
-          <StatusPill label="表" value={status?.hive_table ?? "-"} />
-          <StatusPill label="Qwen" value={status?.qwen ?? "disabled"} />
-          <StatusPill label="MGeo" value={status?.mgeo ?? "disabled"} />
+          <StatusPill label="Hive连接" value={status?.hive ?? "disabled"} />
           <StatusPill label="今日Hive" value={status ? `${status.hive_calls_today}` : "0"} />
           <StatusPill label="今日Qwen" value={status ? `${status.qwen_calls_today}` : "0"} />
           <a className="textButton guideLink" href="/flow.html">
@@ -522,8 +517,8 @@ function ProgressSummary({
 }
 
 function StatusPill({ label, value }: { label: string; value: string }) {
-  const good = ["configured", "ok"].includes(value) || /^\d+$/.test(value);
-  const missing = ["missing", "disabled", "unavailable", "unknown"].includes(value);
+  const good = ["configured", "ok", "connected", "present"].includes(value) || /^\d+$/.test(value);
+  const missing = ["missing", "disabled", "unavailable", "unknown", "disconnected"].includes(value);
   const displayValue = statusDisplayValue(value);
   return (
     <span className={`statusPill ${good ? "good" : ""} ${missing ? "muted" : ""}`} title={`${label}: ${value}`}>
@@ -536,8 +531,11 @@ function StatusPill({ label, value }: { label: string; value: string }) {
 function statusDisplayValue(value: string) {
   const labels: Record<string, string> = {
     configured: "已配",
+    connected: "已连",
+    disconnected: "未连",
+    present: "有",
     disabled: "关闭",
-    missing: "缺失",
+    missing: "无",
     unavailable: "不可用",
     unknown: "未知",
     ok: "正常"

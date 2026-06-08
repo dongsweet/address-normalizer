@@ -66,6 +66,7 @@ def health() -> dict[str, str]:
 @app.get("/api/config/status", response_model=ConfigStatus)
 def config_status() -> ConfigStatus:
     today = datetime.now(UTC).date().isoformat()
+    hive_state = "disabled"
     try:
         status = db.status()
         hive_calls_today = db.get_api_call_count("hive", today, today)
@@ -76,11 +77,13 @@ def config_status() -> ConfigStatus:
         hive_calls_today = 0
         qwen_calls_today = 0
         database_state = "unavailable"
+    if settings.hive_configured:
+        hive_state = "connected" if hive.check_connection() else "disconnected"
     return ConfigStatus(
         database=database_state,
         qwen="configured" if settings.qwen_configured else "disabled",
         mgeo="configured" if mgeo.enabled else "disabled",
-        hive="configured" if settings.hive_configured else "disabled",
+        hive=hive_state,
         recall_scope_mode=settings.recall_scope_mode,
         hive_table=settings.hive_table if settings.hive_configured else None,
         poi_rows=status.get("poi_rows", 0),

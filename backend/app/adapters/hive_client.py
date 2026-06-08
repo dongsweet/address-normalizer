@@ -37,6 +37,21 @@ class HiveClient:
     def enabled(self) -> bool:
         return self.settings.hive_configured
 
+    def check_connection(self) -> bool:
+        if not self.enabled or hive_connect is None:
+            return False
+        try:
+            connection = hive_connect(**self._connection_kwargs())
+            try:
+                cursor = connection.cursor()
+                cursor.execute("SHOW TABLES")
+                cursor.fetchall()
+            finally:
+                connection.close()
+        except Exception:  # noqa: BLE001
+            return False
+        return True
+
     async def search(self, query: str, city: str | None, district: str | None = None, limit: int = 8) -> list[AddressCandidate]:
         query = query.strip()
         if not self.enabled or not query:

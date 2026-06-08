@@ -17,10 +17,16 @@ class FakeDb:
         return {"hive": 7, "qwen": 4}.get(provider, 0)
 
 
+class FakeHive:
+    def check_connection(self) -> bool:
+        return True
+
+
 def test_config_status_reports_hive_fields(monkeypatch) -> None:
     import app.main as main
 
     monkeypatch.setattr(main, "db", FakeDb())
+    monkeypatch.setattr(main, "hive", FakeHive())
     monkeypatch.setattr(main.settings, "hive_enabled", True)
     monkeypatch.setattr(main.settings, "hive_host", "hive")
     monkeypatch.setattr(main.settings, "hive_database", "default")
@@ -28,7 +34,7 @@ def test_config_status_reports_hive_fields(monkeypatch) -> None:
 
     status = config_status()
 
-    assert status.hive == "configured"
+    assert status.hive == "connected"
     assert status.recall_scope_mode == main.settings.recall_scope_mode
     assert status.hive_table == "ysk_datahub_address_standed"
     assert status.hive_calls_today == 7
