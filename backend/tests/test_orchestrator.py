@@ -8,10 +8,16 @@ from app.schemas import AddressCandidate
 
 
 class FakeDb:
+    def __init__(self) -> None:
+        self.last_city: str | None = None
+        self.last_district: str | None = None
+
     def search_memory(self, query: str, limit: int) -> list[AddressCandidate]:
         return []
 
-    def search_poi(self, query: str, city: str | None, limit: int) -> list[AddressCandidate]:
+    def search_poi(self, query: str, city: str | None, district: str | None, limit: int) -> list[AddressCandidate]:
+        self.last_city = city
+        self.last_district = district
         return [
             AddressCandidate(
                 source="poi",
@@ -29,7 +35,7 @@ class FakeDb:
 class FakeHive:
     enabled = True
 
-    async def search(self, query: str, city: str | None, limit: int) -> list[AddressCandidate]:
+    async def search(self, query: str, city: str | None, district: str | None, limit: int) -> list[AddressCandidate]:
         raise RuntimeError("mock hive down")
 
 
@@ -43,20 +49,24 @@ class FakeMgeo:
 
 
 def test_hive_failure_degrades_to_other_candidates() -> None:
+    db = FakeDb()
     agent = AddressAgent(
         Settings(
             hive_enabled=True,
             hive_host="hive",
             hive_table="ysk_datahub_address_standed",
             qwen_base_url=None,
+            recall_scope_mode="auto",
         ),
-        FakeDb(),
+        db,
         FakeQwen(),
         FakeHive(),
         FakeMgeo(),
     )
 
-    result = asyncio.run(agent.normalize_one("友好北路689美美友好购物中心H&M", use_qwen=False))
+    result = asyncio.run(agent.normalize_one("乌鲁木齐市沙依巴克区友好北路689美美友好购物中心H&M", use_qwen=False))
 
     assert result.source == "poi"
+    assert db.last_city == "乌鲁木齐市"
+    assert db.last_district == "沙依巴克区"
     assert any("标准地址库查询失败" in warning for warning in result.warnings)

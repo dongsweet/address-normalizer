@@ -45,8 +45,9 @@ def test_hive_search_sql_escapes_user_input() -> None:
         )
     )
 
-    sql = client._build_search_sql(query="友好%'路", city="乌鲁木齐市", limit=8)
+    sql = client._build_search_sql(query="友好%'路", city="乌鲁木齐市", district="沙依巴克区", limit=8)
 
     assert "FROM `default`.`ysk_datahub_address_standed`" in sql
     assert "like lower('%友好%''路%')" in sql
+    assert "lower(`county`) = lower('沙依巴克区')" in sql
     assert "limit 20" in sql.lower()

@@ -26,7 +26,8 @@ services:
       AUTO_INIT_DB: ${AUTO_INIT_DB:-true}
       AUTO_SEED_PUBLIC_POI: ${AUTO_SEED_PUBLIC_POI:-true}
       PUBLIC_POI_CSV: ${PUBLIC_POI_CSV:-/app/data/public_poi/urumqi_overture_poi_sample.csv}
-      DEFAULT_CITY: ${DEFAULT_CITY:-乌鲁木齐市}
+      RECALL_SCOPE_MODE: ${RECALL_SCOPE_MODE:-auto}
+      DEFAULT_CITY: ${DEFAULT_CITY:-}
       CANDIDATE_LIMIT: ${CANDIDATE_LIMIT:-8}
       MAX_BATCH_CONCURRENCY: ${MAX_BATCH_CONCURRENCY:-4}
       FAST_PATH_ENABLED: ${FAST_PATH_ENABLED:-true}

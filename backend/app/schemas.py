@@ -71,12 +71,13 @@ class ConfigStatus(BaseModel):
     qwen: str
     mgeo: str
     hive: str
+    recall_scope_mode: str
     hive_table: str | None = None
     poi_rows: int
     memory_rows: int
     memory_alias_rows: int = 0
     memory_detail_rows: int = 0
-    default_city: str
+    default_city: str | None = None
     hive_calls_today: int = 0
     qwen_calls_today: int = 0
 

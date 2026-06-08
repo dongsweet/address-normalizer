@@ -29,6 +29,12 @@ class PipelineAttempt:
     input_detail: dict[str, str]
 
 
+@dataclass(frozen=True)
+class RecallScope:
+    city: str | None = None
+    district: str | None = None
+
+
 class AddressAgent:
     def __init__(
         self,
@@ -136,18 +142,33 @@ class AddressAgent:
         warnings: list[str] = []
         recall_query, input_detail = _split_input_detail(cleaned)
         recall_queries = _unique_texts([cleaned, recall_query])
+        recall_scope = _resolve_recall_scope(raw_address, cleaned, self.settings)
 
         _emit(progress, "recall", "召回记忆库和POI候选")
         candidates: list[AddressCandidate] = []
         for query in recall_queries:
             candidates.extend(self.db.search_memory(query, self.settings.candidate_limit))
-            candidates.extend(self.db.search_poi(query, self.settings.default_city, self.settings.candidate_limit * 2))
+            candidates.extend(
+                self.db.search_poi(
+                    query,
+                    recall_scope.city,
+                    recall_scope.district,
+                    self.settings.candidate_limit * 2,
+                )
+            )
 
         if self.hive.enabled:
             _emit(progress, "hive", "查询标准地址库")
             for query in recall_queries:
                 try:
-                    candidates.extend(await self.hive.search(query, self.settings.default_city, self.settings.candidate_limit))
+                    candidates.extend(
+                        await self.hive.search(
+                            query,
+                            recall_scope.city,
+                            recall_scope.district,
+                            self.settings.candidate_limit,
+                        )
+                    )
                 except Exception as exc:  # noqa: BLE001
                     warnings.append(f"标准地址库查询失败: {exc}")
                     break
@@ -315,6 +336,35 @@ def _unique_texts(values: list[str]) -> list[str]:
         seen.add(normalized)
         unique.append(normalized)
     return unique
+
+
+_CITY_RE = re.compile(r"(?P<city>[\u4e00-\u9fff]{2,20}(?:自治州|地区|盟|市))")
+_DISTRICT_RE = re.compile(r"(?P<district>[\u4e00-\u9fff]{1,20}(?:区|县|旗|市))")
+
+
+def _resolve_recall_scope(raw_address: str, cleaned: str, settings: Settings) -> RecallScope:
+    if settings.recall_scope_mode == "off":
+        return RecallScope()
+    if settings.recall_scope_mode == "fixed":
+        return RecallScope(city=settings.default_city)
+
+    cleaned_scope = _extract_recall_scope(cleaned)
+    raw_scope = _extract_recall_scope(raw_address)
+    return RecallScope(
+        city=cleaned_scope.city or raw_scope.city,
+        district=cleaned_scope.district or raw_scope.district,
+    )
+
+
+def _extract_recall_scope(value: str) -> RecallScope:
+    city_matches = list(_CITY_RE.finditer(value))
+    district_matches = list(_DISTRICT_RE.finditer(value))
+    city = city_matches[-1].group("city") if city_matches else None
+    district = district_matches[-1].group("district") if district_matches else None
+    if city and district and district.startswith(city):
+        stripped = district[len(city) :].strip()
+        district = stripped or district
+    return RecallScope(city=city, district=district)
 
 
 def _looks_like_mixed_input(raw_address: str, cleaned: str) -> bool:

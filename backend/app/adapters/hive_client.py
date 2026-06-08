@@ -37,17 +37,17 @@ class HiveClient:
     def enabled(self) -> bool:
         return self.settings.hive_configured
 
-    async def search(self, query: str, city: str | None, limit: int = 8) -> list[AddressCandidate]:
+    async def search(self, query: str, city: str | None, district: str | None = None, limit: int = 8) -> list[AddressCandidate]:
         query = query.strip()
         if not self.enabled or not query:
             return []
-        return await asyncio.to_thread(self._search_blocking, query, city, limit)
+        return await asyncio.to_thread(self._search_blocking, query, city, district, limit)
 
-    def _search_blocking(self, query: str, city: str | None, limit: int) -> list[AddressCandidate]:
+    def _search_blocking(self, query: str, city: str | None, district: str | None, limit: int) -> list[AddressCandidate]:
         if hive_connect is None:
             raise RuntimeError("Hive client dependency is missing: install impyla")
 
-        sql = self._build_search_sql(query=query, city=city, limit=limit)
+        sql = self._build_search_sql(query=query, city=city, district=district, limit=limit)
         http_status: int | None = None
         try:
             connection = hive_connect(**self._connection_kwargs())
@@ -66,7 +66,11 @@ class HiveClient:
                 response_status="error",
                 http_status=http_status,
                 error_message=str(exc),
-                metadata={"city": city or self.settings.default_city, "table": self.settings.hive_table},
+                metadata={
+                    "city": city or self.settings.default_city,
+                    "district": district,
+                    "table": self.settings.hive_table,
+                },
             )
             raise
 
@@ -78,7 +82,11 @@ class HiveClient:
             request_query=query,
             response_status="success",
             result_count=len(candidates),
-            metadata={"city": city or self.settings.default_city, "table": self.settings.hive_table},
+            metadata={
+                "city": city or self.settings.default_city,
+                "district": district,
+                "table": self.settings.hive_table,
+            },
         )
         return candidates
 
@@ -96,7 +104,7 @@ class HiveClient:
             kwargs["password"] = self.settings.hive_password
         return kwargs
 
-    def _build_search_sql(self, *, query: str, city: str | None, limit: int) -> str:
+    def _build_search_sql(self, *, query: str, city: str | None, district: str | None, limit: int) -> str:
         database = _safe_identifier(self.settings.hive_database)
         table = _safe_identifier(self.settings.hive_table)
         like_query = _like_literal(query)
@@ -109,6 +117,11 @@ class HiveClient:
             city_literal = _string_literal(target_city)
             where_clauses.append(
                 "(coalesce(`city`, '') = '' or lower(`city`) = lower('{city}'))".format(city=city_literal)
+            )
+        if district:
+            district_literal = _string_literal(district)
+            where_clauses.append(
+                "(coalesce(`county`, '') = '' or lower(`county`) = lower('{district}'))".format(district=district_literal)
             )
 
         fetch_limit = max(limit, min(self.settings.hive_fetch_limit, limit * 3))

@@ -29,6 +29,7 @@ def test_config_status_reports_hive_fields(monkeypatch) -> None:
     status = config_status()
 
     assert status.hive == "configured"
+    assert status.recall_scope_mode == main.settings.recall_scope_mode
     assert status.hive_table == "ysk_datahub_address_standed"
     assert status.hive_calls_today == 7
     assert status.qwen_calls_today == 4

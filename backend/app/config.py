@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -43,7 +44,8 @@ class Settings(BaseSettings):
     qwen_daily_quota: int | None = None
     qwen_monthly_quota: int | None = None
 
-    default_city: str = "乌鲁木齐市"
+    recall_scope_mode: Literal["fixed", "auto", "off"] = "auto"
+    default_city: str | None = None
     candidate_limit: int = 8
     max_batch_concurrency: int = 4
 

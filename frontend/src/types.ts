@@ -102,12 +102,13 @@ export interface ConfigStatus {
   qwen: string;
   mgeo: string;
   hive: string;
+  recall_scope_mode: string;
   hive_table?: string | null;
   poi_rows: number;
   memory_rows: number;
   memory_alias_rows: number;
   memory_detail_rows: number;
-  default_city: string;
+  default_city?: string | null;
   hive_calls_today: number;
   qwen_calls_today: number;
 }

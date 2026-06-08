@@ -81,6 +81,7 @@ def config_status() -> ConfigStatus:
         qwen="configured" if settings.qwen_configured else "disabled",
         mgeo="configured" if mgeo.enabled else "disabled",
         hive="configured" if settings.hive_configured else "disabled",
+        recall_scope_mode=settings.recall_scope_mode,
         hive_table=settings.hive_table if settings.hive_configured else None,
         poi_rows=status.get("poi_rows", 0),
         memory_rows=status.get("memory_rows", 0),
@@ -312,7 +313,7 @@ def _input_residual(result: NormalizedAddress) -> str:
             if key.endswith(suffix):
                 residual = residual.replace(key[: -len(suffix)], "")
 
-    residual = _strip_non_anchor_terms(residual)
+    residual = _strip_non_anchor_terms(residual, components)
     return residual if len(residual) > 3 else ""
 
 
@@ -353,21 +354,11 @@ def _signal_key(value: str | None) -> str:
     return "".join(re.findall(r"[\u4e00-\u9fffa-zA-Z0-9]+", value or "")).lower()
 
 
-def _strip_non_anchor_terms(value: str) -> str:
+def _strip_non_anchor_terms(value: str, components: dict[str, Any] | None = None) -> str:
     text = value
+    for term in _location_terms(components):
+        text = text.replace(term, "")
     for term in (
-        "新疆",
-        "维吾尔",
-        "自治区",
-        "乌鲁木齐",
-        "乌市",
-        "天山",
-        "沙区",
-        "沙依巴克",
-        "新市",
-        "水磨沟",
-        "经开",
-        "高新",
         "送到",
         "快递",
         "驿站",
@@ -383,6 +374,32 @@ def _strip_non_anchor_terms(value: str) -> str:
         text = text.replace(term, "")
     text = re.sub(r"\d+号门", "", text)
     return text
+
+
+def _location_terms(components: dict[str, Any] | None) -> list[str]:
+    suffixes = ("维吾尔自治区", "自治区", "自治州", "地区", "省", "市", "区", "县", "旗")
+    values = [
+        str((components or {}).get("province") or ""),
+        str((components or {}).get("city") or ""),
+        str((components or {}).get("district") or ""),
+        str((components or {}).get("town") or ""),
+    ]
+    terms: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        token = value.strip()
+        if not token:
+            continue
+        variants = [token]
+        for suffix in suffixes:
+            if token.endswith(suffix):
+                variants.append(token[: -len(suffix)])
+        for item in variants:
+            normalized = item.strip()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                terms.append(normalized)
+    return terms
 
 
 def _memory_payload(result: NormalizedAddress, confirmed_by: str) -> dict[str, Any]:

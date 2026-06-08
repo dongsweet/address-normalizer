@@ -203,7 +203,7 @@ export function App() {
       <header className="topbar">
         <div>
           <h1>地址规范化工作台</h1>
-          <div className="subtle">乌鲁木齐 · Hive标准地址库 · 记忆沉淀</div>
+          <div className="subtle">多城市 · Hive标准地址库 · 记忆沉淀</div>
         </div>
         <div className="statusRow">
           <StatusPill label="PG" value={status?.database ?? "unknown"} />
@@ -212,6 +212,7 @@ export function App() {
           <StatusPill label="别名" value={status ? `${status.memory_alias_rows}` : "0"} />
           <StatusPill label="明细" value={status ? `${status.memory_detail_rows}` : "0"} />
           <StatusPill label="Hive" value={status?.hive ?? "disabled"} />
+          <StatusPill label="范围" value={status?.recall_scope_mode ?? "unknown"} />
           <StatusPill label="表" value={status?.hive_table ?? "-"} />
           <StatusPill label="Qwen" value={status?.qwen ?? "disabled"} />
           <StatusPill label="MGeo" value={status?.mgeo ?? "disabled"} />
