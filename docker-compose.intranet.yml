@@ -36,7 +36,7 @@ services:
       FAST_PATH_GAP: ${FAST_PATH_GAP:-0.12}
       MEMORY_FAST_PATH_SCORE: ${MEMORY_FAST_PATH_SCORE:-0.94}
       STANDARD_FAST_PATH_SCORE: ${STANDARD_FAST_PATH_SCORE:-0.96}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
       QWEN_BASE_URL: ${QWEN_BASE_URL:-}
       QWEN_API_KEY: ${QWEN_API_KEY:-}
       QWEN_MODEL: ${QWEN_MODEL:-qwen3.6-27b}
@@ -58,6 +58,23 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  mgeo:
+    profiles:
+      - mgeo
+    image: address-normalizer-mgeo:intranet
+    build:
+      context: .
+      dockerfile: mgeo_worker/Dockerfile.intranet
+    container_name: address-normalizer-mgeo
+    environment:
+      MGEO_MODEL_ID: ${MGEO_MODEL_ID:-iic/mgeo_geographic_elements_tagging_chinese_base}
+      MGEO_MODEL_REVISION: ${MGEO_MODEL_REVISION:-}
+      MGEO_LOAD_ON_STARTUP: ${MGEO_LOAD_ON_STARTUP:-true}
+      MGEO_USE_MODEL: ${MGEO_USE_MODEL:-true}
+      MODELSCOPE_CACHE: /root/.cache/modelscope
+    ports:
+      - "8090:8090"
 
   frontend:
     image: address-normalizer-frontend:intranet

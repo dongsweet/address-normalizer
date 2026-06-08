@@ -64,12 +64,14 @@ docker compose -f docker-compose.intranet.yml up --build -d
 - `db`: PostGIS 数据库
 - `api`: FastAPI 后端
 - `frontend`: 静态前端 + Nginx 反向代理 `/api`
+- `mgeo`: 可选 profile，启用时使用预打包模型镜像
 
 启动后：
 
 - `api` 会按 `AUTO_INIT_DB=true` 自动建表
 - `AUTO_SEED_PUBLIC_POI=false` 时不会自动灌入公网 POI 样例
 - `HIVE_*` 指向内网真实 Hive 即可，不需要再带模拟 Hive
+- 如果需要离线启用 MGeo，先导入 `address-normalizer-mgeo:intranet`，再用 `--profile mgeo` 启动
 
 如果交付包里已经附带离线镜像文件，内网侧只需要导入：
 
@@ -83,6 +85,7 @@ docker load -i address-normalizer-intranet-images.tar
 
 - `address-normalizer-api:intranet`: 只打入 `backend/app` 和 `data`
 - `address-normalizer-frontend:intranet`: 只打入前端编译后的静态文件
+- `address-normalizer-mgeo:intranet`: 预打包了 ModelScope 缓存模型，可离线启动
 - PostgreSQL / Hive 本身不在这两个业务镜像里
 
 也就是说，测试机上现在运行的代码并不是“整仓库都塞进 api/frontend”：

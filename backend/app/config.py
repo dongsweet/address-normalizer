@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     app_name: str = "Address Normalizer"
     environment: str = "dev"
     database_url: str = "postgresql://address:address@localhost:5432/address_normalizer"
-    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    cors_origins: str = "http://localhost:5173"
 
     auto_init_db: bool = True
     auto_seed_public_poi: bool = True

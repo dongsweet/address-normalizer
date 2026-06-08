@@ -16,6 +16,7 @@ venv/
 frontend/node_modules/
 frontend/dist/
 frontend/tsconfig.tsbuildinfo
+mgeo_worker/modelscope_cache/
 
 *.log
 .DS_Store
