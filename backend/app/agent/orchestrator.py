@@ -9,7 +9,7 @@ from app.adapters.hive_client import HiveClient
 from app.adapters.mgeo_client import MGeoClient
 from app.adapters.qwen_client import QwenClient
 from app.agent.cleaner import clean_address
-from app.agent.scorer import rank_candidates
+from app.agent.scorer import has_strong_anchor_evidence, rank_candidates
 from app.config import Settings
 from app.db import Database
 from app.schemas import AddressCandidate, NormalizedAddress
@@ -206,6 +206,7 @@ class AddressAgent:
         qwen_output = None
         raw_model_output = {"mgeo": mgeo_payload, "qwen": None} if mgeo_payload else None
         selected = ranked[0] if ranked else None
+        selected_by_qwen = False
         qwen_rejected = False
         if use_qwen and self.settings.qwen_configured and ranked:
             _emit(progress, "qwen", "Qwen选择或拒识候选")
@@ -221,11 +222,16 @@ class AddressAgent:
                         warnings.append(f"Qwen拒识: {reason}")
                 elif isinstance(selected_index, int) and 0 <= selected_index < len(ranked):
                     selected = ranked[selected_index]
+                    selected_by_qwen = True
                     selected.score = max(selected.score, _model_confidence(qwen_output, selected.score))
                 elif qwen_output:
                     warnings.append("Qwen返回的候选索引无效，保留本地排序结果")
             except Exception as exc:  # noqa: BLE001
                 warnings.append(f"Qwen候选选择失败: {exc}")
+
+        if selected and selected.source in {"memory", "standard"} and not selected_by_qwen and not has_strong_anchor_evidence(selected):
+            warnings.append("候选锚点证据不足，不直接输出")
+            selected = None
 
         return PipelineAttempt(
             cleaned=cleaned,
@@ -283,10 +289,14 @@ def _fast_path_candidate(ranked: list[AddressCandidate], settings: Settings) -> 
     if not settings.fast_path_enabled or not ranked:
         return None
     top = ranked[0]
-    if top.source == "memory" and top.score >= settings.memory_fast_path_score:
-        return top
-    if top.source == "standard" and top.score >= settings.standard_fast_path_score:
-        return top
+    if top.source == "memory":
+        if top.score >= settings.memory_fast_path_score and has_strong_anchor_evidence(top):
+            return top
+        return None
+    if top.source == "standard":
+        if top.score >= settings.standard_fast_path_score and has_strong_anchor_evidence(top):
+            return top
+        return None
     runner_up_score = ranked[1].score if len(ranked) > 1 else 0.0
     if top.score >= settings.fast_path_score and top.score - runner_up_score >= settings.fast_path_gap:
         return top

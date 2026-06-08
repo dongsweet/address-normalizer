@@ -651,8 +651,11 @@ class Database:
                         lon = %(lon)s,
                         lat = %(lat)s,
                         geom = CASE
-                            WHEN %(lon)s IS NULL OR %(lat)s IS NULL THEN NULL
-                            ELSE ST_SetSRID(ST_MakePoint(%(lon)s, %(lat)s), 4326)::geography
+                            WHEN CAST(%(lon)s AS double precision) IS NULL OR CAST(%(lat)s AS double precision) IS NULL THEN NULL
+                            ELSE ST_SetSRID(
+                                ST_MakePoint(CAST(%(lon)s AS double precision), CAST(%(lat)s AS double precision)),
+                                4326
+                            )::geography
                         END,
                         search_text = %(search_text)s
                     WHERE id = %(id)s
@@ -685,8 +688,11 @@ class Database:
                     %(anchor_type)s, %(anchor_id)s, %(anchor_source)s, %(city)s, %(district)s,
                     %(lon)s, %(lat)s,
                     CASE
-                        WHEN %(lon)s IS NULL OR %(lat)s IS NULL THEN NULL
-                        ELSE ST_SetSRID(ST_MakePoint(%(lon)s, %(lat)s), 4326)::geography
+                        WHEN CAST(%(lon)s AS double precision) IS NULL OR CAST(%(lat)s AS double precision) IS NULL THEN NULL
+                        ELSE ST_SetSRID(
+                            ST_MakePoint(CAST(%(lon)s AS double precision), CAST(%(lat)s AS double precision)),
+                            4326
+                        )::geography
                     END,
                     %(confirmed_by)s, %(search_text)s
                 )

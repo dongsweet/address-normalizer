@@ -229,7 +229,7 @@ def map_hive_row(row: dict[str, Any], *, table: str) -> AddressCandidate | None:
         city=_clean_text(row.get("city")),
         district=_clean_text(row.get("county")),
         town=_clean_text(row.get("town")),
-        score=0.66,
+        score=0.0,
         evidence="hive standard-address table",
         metadata=metadata,
     )

@@ -50,10 +50,10 @@ class Settings(BaseSettings):
     max_batch_concurrency: int = 4
 
     fast_path_enabled: bool = True
-    fast_path_score: float = 0.9
+    fast_path_score: float = 0.95
     fast_path_gap: float = 0.12
-    memory_fast_path_score: float = 0.82
-    standard_fast_path_score: float = 0.84
+    memory_fast_path_score: float = 0.94
+    standard_fast_path_score: float = 0.96
     auto_memory_min_confidence: float = 0.9
 
     @property

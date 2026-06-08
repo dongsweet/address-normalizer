@@ -29,6 +29,7 @@ def test_map_hive_row_uses_expected_field_fallbacks() -> None:
     assert candidate.name == "美美友好购物中心"
     assert candidate.city == "乌鲁木齐市"
     assert candidate.district == "沙依巴克区"
+    assert candidate.score == 0
     assert candidate.metadata["table"] == "ysk_datahub_address_standed"
     assert candidate.metadata["building"] == "18栋"
 

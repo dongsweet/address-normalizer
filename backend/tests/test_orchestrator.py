@@ -39,6 +39,32 @@ class FakeHive:
         raise RuntimeError("mock hive down")
 
 
+class WeakStandardDb:
+    def search_memory(self, query: str, limit: int) -> list[AddressCandidate]:
+        return []
+
+    def search_poi(self, query: str, city: str | None, district: str | None, limit: int) -> list[AddressCandidate]:
+        return []
+
+
+class WeakStandardHive:
+    enabled = True
+
+    async def search(self, query: str, city: str | None, district: str | None, limit: int) -> list[AddressCandidate]:
+        return [
+            AddressCandidate(
+                source="standard",
+                candidate_id="HIVE-weak",
+                name="光明路北小区",
+                full_address="新疆维吾尔自治区乌鲁木齐市天山区光明路北小区18栋-1单元-2楼-8号",
+                city="乌鲁木齐市",
+                district="天山区",
+                score=0,
+                metadata={"provider": "hive"},
+            )
+        ]
+
+
 class FakeQwen:
     async def repair_cleaned_address(self, raw: str, cleaned: str) -> None:
         return None
@@ -70,3 +96,25 @@ def test_hive_failure_degrades_to_other_candidates() -> None:
     assert db.last_city == "乌鲁木齐市"
     assert db.last_district == "沙依巴克区"
     assert any("标准地址库查询失败" in warning for warning in result.warnings)
+
+
+def test_weak_standard_candidate_rejects_without_qwen_confirmation() -> None:
+    agent = AddressAgent(
+        Settings(
+            hive_enabled=True,
+            hive_host="hive",
+            hive_table="ysk_datahub_address_standed",
+            qwen_base_url=None,
+            recall_scope_mode="auto",
+        ),
+        WeakStandardDb(),
+        FakeQwen(),
+        WeakStandardHive(),
+        FakeMgeo(),
+    )
+
+    result = asyncio.run(agent.normalize_one("光明路北北", use_qwen=False))
+
+    assert result.source == "none"
+    assert result.anchor_type == "unmatched"
+    assert any("候选锚点证据不足" in warning for warning in result.warnings)

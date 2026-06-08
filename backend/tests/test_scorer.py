@@ -1,0 +1,80 @@
+from __future__ import annotations
+
+from app.agent.orchestrator import _fast_path_candidate
+from app.agent.scorer import has_strong_anchor_evidence, score_candidate
+from app.config import Settings
+from app.schemas import AddressCandidate
+
+
+def _settings() -> Settings:
+    return Settings(memory_fast_path_score=0.94, standard_fast_path_score=0.96, fast_path_score=0.95)
+
+
+def _candidate(source: str = "standard", metadata: dict | None = None) -> AddressCandidate:
+    return AddressCandidate(
+        source=source,
+        candidate_id="C-1",
+        name="光明路北小区",
+        full_address="新疆维吾尔自治区乌鲁木齐市天山区光明路北小区18栋-1单元-2楼-8号",
+        city="乌鲁木齐市",
+        district="天山区",
+        score=0,
+        metadata=metadata or {},
+    )
+
+
+def test_short_fuzzy_input_does_not_get_high_confidence() -> None:
+    standard = score_candidate("光明路北北", "光明路北北", _candidate("standard"))
+    memory = score_candidate("光明路北北", "光明路北北", _candidate("memory", {"matched_alias": "光明路北小区"}))
+
+    assert standard.score < _settings().standard_fast_path_score
+    assert memory.score < _settings().memory_fast_path_score
+    assert has_strong_anchor_evidence(standard) is False
+    assert has_strong_anchor_evidence(memory) is False
+
+
+def test_complete_anchor_and_detail_can_score_high() -> None:
+    anchor = score_candidate("光明路北小区", "光明路北小区", _candidate("standard"))
+    detail = score_candidate(
+        "光明路北小区18栋1单元2层8号",
+        "光明路北小区18栋1单元2层8号",
+        _candidate("standard", {"building": "18栋", "unit": "1单元", "floor": "2楼", "room": "8号"}),
+    )
+    exact_alias = score_candidate(
+        "光明路北小区",
+        "光明路北小区",
+        _candidate("memory", {"matched_alias": "光明路北小区"}),
+    )
+
+    assert anchor.score >= _settings().standard_fast_path_score
+    assert detail.score >= _settings().standard_fast_path_score
+    assert exact_alias.score >= _settings().memory_fast_path_score
+    assert has_strong_anchor_evidence(anchor) is True
+    assert has_strong_anchor_evidence(detail) is True
+    assert has_strong_anchor_evidence(exact_alias) is True
+
+
+def test_standard_source_alone_does_not_fast_path() -> None:
+    candidate = score_candidate("光明路北北", "光明路北北", _candidate("standard"))
+
+    assert _fast_path_candidate([candidate], _settings()) is None
+
+
+def test_fast_path_requires_strong_anchor_for_memory_and_standard() -> None:
+    weak_memory = _candidate("memory")
+    weak_memory.score = 0.99
+    weak_memory.metadata["strong_anchor_evidence"] = False
+    strong_memory = score_candidate(
+        "光明路北小区",
+        "光明路北小区",
+        _candidate("memory", {"matched_alias": "光明路北小区"}),
+    )
+    strong_standard = score_candidate(
+        "光明路北小区18栋1单元2层8号",
+        "光明路北小区18栋1单元2层8号",
+        _candidate("standard", {"building": "18栋", "unit": "1单元", "floor": "2楼", "room": "8号"}),
+    )
+
+    assert _fast_path_candidate([weak_memory], _settings()) is None
+    assert _fast_path_candidate([strong_memory], _settings()) == strong_memory
+    assert _fast_path_candidate([strong_standard], _settings()) == strong_standard
