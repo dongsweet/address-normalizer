@@ -71,15 +71,13 @@ docker compose -f docker-compose.intranet.yml up --build -d
 - `AUTO_SEED_PUBLIC_POI=false` 时不会自动灌入公网 POI 样例
 - `HIVE_*` 指向内网真实 Hive 即可，不需要再带模拟 Hive
 
-如果要导出镜像给内网环境离线导入，可执行：
+如果交付包里已经附带离线镜像文件，内网侧只需要导入：
 
 ```powershell
-docker compose -f docker-compose.intranet.yml build
-docker save -o address-normalizer-intranet-images.tar `
-  address-normalizer-api:intranet `
-  address-normalizer-frontend:intranet `
-  postgis/postgis:16-3.4
+docker load -i address-normalizer-intranet-images.tar
 ```
+
+然后按上面的 `.env` 和 compose 命令启动即可。
 
 ### What Is Inside Each Image
 
