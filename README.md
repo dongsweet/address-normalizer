@@ -50,6 +50,49 @@ API 文档：
 http://localhost:8000/docs
 ```
 
+## Intranet Delivery
+
+内网交付建议使用：
+
+```powershell
+Copy-Item .env.intranet.example .env
+docker compose -f docker-compose.intranet.yml up --build -d
+```
+
+这套交付栈包含：
+
+- `db`: PostGIS 数据库
+- `api`: FastAPI 后端
+- `frontend`: 静态前端 + Nginx 反向代理 `/api`
+
+启动后：
+
+- `api` 会按 `AUTO_INIT_DB=true` 自动建表
+- `AUTO_SEED_PUBLIC_POI=false` 时不会自动灌入公网 POI 样例
+- `HIVE_*` 指向内网真实 Hive 即可，不需要再带模拟 Hive
+
+如果要导出镜像给内网环境离线导入，可执行：
+
+```powershell
+docker compose -f docker-compose.intranet.yml build
+docker save -o address-normalizer-intranet-images.tar `
+  address-normalizer-api:intranet `
+  address-normalizer-frontend:intranet `
+  postgis/postgis:16-3.4
+```
+
+### What Is Inside Each Image
+
+- `address-normalizer-api:intranet`: 只打入 `backend/app` 和 `data`
+- `address-normalizer-frontend:intranet`: 只打入前端编译后的静态文件
+- PostgreSQL / Hive 本身不在这两个业务镜像里
+
+也就是说，测试机上现在运行的代码并不是“整仓库都塞进 api/frontend”：
+
+- `api` 镜像包含后端代码和样例数据
+- `frontend` 镜像包含前端代码
+- `db`、模拟 `hive`、`mgeo` 都是独立容器
+
 如果测试机只开放 SSH，可以建立本地隧道：
 
 ```powershell
@@ -154,8 +197,7 @@ GET /api/config/status
 当前状态里会展示：
 
 - PostgreSQL 是否可用
-- Hive 是否已配置
-- 当前 Hive 表名
+- Hive 是否连通
 - 今日 Hive 查询次数
 - 今日 Qwen 调用次数
 - POI / 记忆库 / 明细条数
@@ -182,7 +224,7 @@ POST /api/normalize/stream
 ## Acceptance Checklist
 
 1. 启动 `docker-compose.yml + docker-compose.hive.yml`
-2. 打开 `/api/config/status`，确认 `hive=configured`
+2. 打开 `/api/config/status`，确认 `hive=connected`
 3. 在前端跑一批模拟地址
 4. 验证主结果来源为 `standard`
 5. 验证高置信标准库命中可自动沉淀到记忆库

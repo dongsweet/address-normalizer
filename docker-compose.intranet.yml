@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-address}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-address}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -17,6 +17,7 @@ services:
       retries: 20
 
   api:
+    image: address-normalizer-api:intranet
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -24,7 +25,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://address:address@db:5432/address_normalizer}
       AUTO_INIT_DB: ${AUTO_INIT_DB:-true}
-      AUTO_SEED_PUBLIC_POI: ${AUTO_SEED_PUBLIC_POI:-true}
+      AUTO_SEED_PUBLIC_POI: ${AUTO_SEED_PUBLIC_POI:-false}
       PUBLIC_POI_CSV: ${PUBLIC_POI_CSV:-/app/data/public_poi/urumqi_overture_poi_sample.csv}
       RECALL_SCOPE_MODE: ${RECALL_SCOPE_MODE:-auto}
       DEFAULT_CITY: ${DEFAULT_CITY:-}
@@ -40,12 +41,12 @@ services:
       QWEN_API_KEY: ${QWEN_API_KEY:-}
       QWEN_MODEL: ${QWEN_MODEL:-qwen3.6-27b}
       HIVE_ENABLED: ${HIVE_ENABLED:-true}
-      HIVE_HOST: ${HIVE_HOST:-hive}
+      HIVE_HOST: ${HIVE_HOST:-your-hive-host}
       HIVE_PORT: ${HIVE_PORT:-10000}
       HIVE_DATABASE: ${HIVE_DATABASE:-default}
       HIVE_TABLE: ${HIVE_TABLE:-ysk_datahub_address_standed}
-      HIVE_USERNAME: ${HIVE_USERNAME:-hive}
-      HIVE_PASSWORD: ${HIVE_PASSWORD:-changeme}
+      HIVE_USERNAME: ${HIVE_USERNAME:-}
+      HIVE_PASSWORD: ${HIVE_PASSWORD:-}
       HIVE_AUTH_MECHANISM: ${HIVE_AUTH_MECHANISM:-PLAIN}
       HIVE_QUERY_TIMEOUT_SECONDS: ${HIVE_QUERY_TIMEOUT_SECONDS:-8}
       HIVE_FETCH_LIMIT: ${HIVE_FETCH_LIMIT:-20}
@@ -58,41 +59,16 @@ services:
       db:
         condition: service_healthy
 
-  mgeo:
-    profiles:
-      - mgeo
-    build:
-      context: .
-      dockerfile: mgeo_worker/Dockerfile
-    container_name: address-normalizer-mgeo
-    environment:
-      MGEO_MODEL_ID: ${MGEO_MODEL_ID:-iic/mgeo_geographic_elements_tagging_chinese_base}
-      MGEO_MODEL_REVISION: ${MGEO_MODEL_REVISION:-}
-      MGEO_LOAD_ON_STARTUP: ${MGEO_LOAD_ON_STARTUP:-true}
-      MGEO_USE_MODEL: ${MGEO_USE_MODEL:-true}
-      MODELSCOPE_CACHE: ${MODELSCOPE_CACHE:-/root/.cache/modelscope}
-    ports:
-      - "127.0.0.1:8090:8090"
-    volumes:
-      - mgeo_model_cache:/root/.cache/modelscope
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3).read()\""]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-
   frontend:
+    image: address-normalizer-frontend:intranet
     build:
       context: .
-      dockerfile: frontend/Dockerfile
+      dockerfile: frontend/Dockerfile.intranet
     container_name: address-normalizer-frontend
-    environment:
-      VITE_API_PROXY_TARGET: ${VITE_API_PROXY_TARGET:-http://api:8000}
     ports:
-      - "5173:5173"
+      - "5173:80"
     depends_on:
       - api
 
 volumes:
   postgres_data:
-  mgeo_model_cache:
