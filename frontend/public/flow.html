@@ -115,6 +115,55 @@
         background: var(--wash);
       }
 
+      .statusOverview {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .statusCard {
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--paper);
+      }
+
+      .statusCard b,
+      .statusPair b {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 16px;
+      }
+
+      .statusCard p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.66;
+      }
+
+      .statusPair {
+        display: grid;
+        gap: 10px;
+        margin-top: 14px;
+        padding: 14px;
+        border: 1px dashed var(--line);
+        border-radius: 10px;
+        background: #fbfcfc;
+      }
+
+      .statusPairRow {
+        display: grid;
+        grid-template-columns: 92px 1fr;
+        gap: 10px;
+      }
+
+      .statusPairRow span {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.66;
+      }
+
       .box {
         padding: 14px;
         border: 1px solid var(--line);
@@ -246,6 +295,7 @@
 
       @media (max-width: 1040px) {
         .hero,
+        .statusOverview,
         .flow,
         .grid {
           grid-template-columns: 1fr 1fr;
@@ -254,6 +304,7 @@
 
       @media (max-width: 760px) {
         .hero,
+        .statusOverview,
         .flow,
         .grid {
           grid-template-columns: 1fr;
@@ -270,7 +321,7 @@
     <main class="page">
       <nav class="topbar" aria-label="页面导航">
         <a class="link" href="/">返回工作台</a>
-        <a class="link" href="#hive">模拟 Hive 说明</a>
+        <a class="link" href="#status">顶部状态说明</a>
       </nav>
 
       <section class="hero">
@@ -278,14 +329,14 @@
           <div class="eyebrow">公安内网适配版</div>
           <h1>把模糊地址对齐到标准地址库，再让模型只做最后判断</h1>
           <p class="lead">
-            这版不再依赖外部地图 API。系统先清洗输入，再查记忆库、Hive 标准地址表和本地 POI，最后才把候选交给
+            这版不再依赖外部地图 API。系统先清洗输入，查记忆库、本地 POI 和 Hive 标准地址表，再把已有候选交给
             Qwen 选择或拒识，避免模型凭空编地址。
           </p>
           <div class="tags">
-            <span class="tag">HiveServer2 标准地址库</span>
-            <span class="tag">Qwen OpenAI 兼容接口</span>
+            <span class="tag">顶部只看关键业务状态</span>
+            <span class="tag">Hive 连接状态实时探测</span>
             <span class="tag">记忆库自动沉淀</span>
-            <span class="tag">POI 作为本地补充候选</span>
+            <span class="tag">召回范围可固定 / 自动 / 关闭</span>
           </div>
         </div>
         <div>
@@ -300,6 +351,39 @@
           <div class="box good">
             最终结果
             <b>标准库命中 + 明细保留 + 高置信自动沉淀到记忆库</b>
+          </div>
+        </div>
+      </section>
+
+      <h2 id="status" class="sectionTitle">顶部状态为什么这样展示</h2>
+      <section class="panel">
+        <div class="statusOverview">
+          <div class="statusCard">
+            <b>POI</b>
+            <p>只看本地 POI 快照是否存在。进内网的新环境一开始最可能缺的就是这一块，所以直接显示有或无。</p>
+          </div>
+          <div class="statusCard">
+            <b>记忆 / 别名 / 明细</b>
+            <p>直接给业务沉淀规模。比起数据库是否配置，更重要的是已经积累了多少可复用经验。</p>
+          </div>
+          <div class="statusCard">
+            <b>Hive连接</b>
+            <p>显示的不是“写没写配置”，而是当前是否真的能连上 Hive 标准地址库，更适合联调和运维排查。</p>
+          </div>
+          <div class="statusCard">
+            <b>今日统计</b>
+            <p>只保留今日 Hive 调用次数和今日 Qwen 调用次数，方便同时观察标准库命中活跃度和模型消耗。</p>
+          </div>
+        </div>
+        <div class="statusPair">
+          <b>这次调整后的取舍</b>
+          <div class="statusPairRow">
+            <span>保留</span>
+            <span>POI 是否存在、记忆规模、Hive 是否连通、今日调用量、方案讲解入口。</span>
+          </div>
+          <div class="statusPairRow">
+            <span>不置顶</span>
+            <span>PG、Qwen、MGeo、范围模式、表名等技术细节。这些仍然在系统内部生效，但不再占顶部主视野。</span>
           </div>
         </div>
       </section>
@@ -320,12 +404,12 @@
           <div class="step">
             <span class="num">3</span>
             <h3>本地召回</h3>
-            <p>优先查记忆库和本地 POI，先利用已有业务沉淀和快照数据拿到便宜候选。</p>
+            <p>先查记忆库和本地 POI，优先利用业务沉淀和本地快照拿到成本更低的候选。</p>
           </div>
           <div class="step">
             <span class="num">4</span>
             <h3>Hive 标准库</h3>
-            <p>运行时直查 HiveServer2 标准地址表，映射成标准候选并参与统一排序。</p>
+            <p>再直查 HiveServer2 标准地址表，把标准地址映射成候选并参与统一排序。</p>
           </div>
           <div class="step">
             <span class="num">5</span>
@@ -356,8 +440,30 @@
             <p>继续保留为本地补充候选，用来覆盖标准库之外的门店、商场、园区类写法。</p>
           </div>
           <div class="card">
-            <h3>MGeo + Qwen</h3>
-            <p>MGeo 负责补充地址要素上下文，Qwen 负责最终候选判别或拒识。</p>
+            <h3>规则修复 + Qwen</h3>
+            <p>规则负责清洗和拆解，Qwen 只做候选择优或拒识。它们依旧重要，但不再作为顶部状态重点展示。</p>
+          </div>
+        </div>
+      </section>
+
+      <h2 class="sectionTitle">召回范围现在怎么控制</h2>
+      <section class="panel">
+        <div class="grid">
+          <div class="card emphasis">
+            <h3>推荐：auto</h3>
+            <p>系统会从输入里自动提取城市和区县。能提取到就用来收缩召回，提取不到就不强行限定某一座城市。</p>
+          </div>
+          <div class="card">
+            <h3>fixed</h3>
+            <p>始终按默认城市过滤，适合只服务单城的专用环境。如果默认城市写的是乌鲁木齐，就会一直按乌鲁木齐收缩。</p>
+          </div>
+          <div class="card">
+            <h3>off</h3>
+            <p>完全不加城市范围，适合先做全国摸底或排查数据覆盖情况，但候选量会更大，对排序要求更高。</p>
+          </div>
+          <div class="card">
+            <h3>当前优化点</h3>
+            <p>默认已改为 <code>auto</code>，所以即使配置里还写着默认城市，也不会再把所有输入硬锁死在乌鲁木齐。</p>
           </div>
         </div>
       </section>
@@ -441,7 +547,7 @@
   },
   "warnings": ["已自动沉淀到记忆库"]
 }</pre>
-        <p class="footer">这个页面对应当前仓库的 Hive 模拟版方案，不再描述外部地图 API 采购或高德接入。</p>
+        <p class="footer">这个页面对应当前仓库的 Hive 模拟版方案，已经同步到“精简顶部状态 + 多城市自动范围”的现行实现。</p>
       </section>
     </main>
   </body>
