@@ -52,47 +52,25 @@ http://localhost:8000/docs
 
 ## Intranet Delivery
 
-内网交付建议使用：
+内网交付请直接使用：
 
 ```powershell
 Copy-Item .env.intranet.example .env
 docker compose -f docker-compose.intranet.yml up --build -d
 ```
 
-这套交付栈包含：
+完整交付说明见：
 
-- `db`: PostGIS 数据库
-- `api`: FastAPI 后端
-- `frontend`: 静态前端 + Nginx 反向代理 `/api`
-- `mgeo`: 可选 profile，启用时使用预打包模型镜像
-
-启动后：
-
-- `api` 会按 `AUTO_INIT_DB=true` 自动建表
-- `AUTO_SEED_PUBLIC_POI=false` 时不会自动灌入公网 POI 样例
-- `HIVE_*` 指向内网真实 Hive 即可，不需要再带模拟 Hive
-- 如果需要离线启用 MGeo，先导入 `address-normalizer-mgeo:intranet`，再用 `--profile mgeo` 启动
-
-如果交付包里已经附带离线镜像文件，内网侧只需要导入：
-
-```powershell
-docker load -i address-normalizer-intranet-images.tar
+```text
+DELIVERY.md
 ```
 
-然后按上面的 `.env` 和 compose 命令启动即可。
+这份文档只保留入口说明。实际内网交付时：
 
-### What Is Inside Each Image
-
-- `address-normalizer-api:intranet`: 只打入 `backend/app` 和 `data`
-- `address-normalizer-frontend:intranet`: 只打入前端编译后的静态文件
-- `address-normalizer-mgeo:intranet`: 预打包了 ModelScope 缓存模型，可离线启动
-- PostgreSQL / Hive 本身不在这两个业务镜像里
-
-也就是说，测试机上现在运行的代码并不是“整仓库都塞进 api/frontend”：
-
-- `api` 镜像包含后端代码和样例数据
-- `frontend` 镜像包含前端代码
-- `db`、模拟 `hive`、`mgeo` 都是独立容器
+- 使用 `docker-compose.intranet.yml`
+- 连接内网真实 Hive
+- 默认不导入测试 POI
+- `MGeo` 为可选 profile，可单独决定是否随包提供
 
 如果测试机只开放 SSH，可以建立本地隧道：
 
