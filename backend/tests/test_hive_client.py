@@ -49,6 +49,33 @@ def test_hive_search_sql_escapes_user_input() -> None:
     sql = client._build_search_sql(query="友好%'路", city="乌鲁木齐市", district="沙依巴克区", limit=8)
 
     assert "FROM `default`.`ysk_datahub_address_standed`" in sql
-    assert "like lower('%友好%''路%')" in sql
-    assert "lower(`county`) = lower('沙依巴克区')" in sql
+    assert "like '%友好%''路%'" in sql
+    assert "coalesce(`county`, '') = '沙依巴克区'" in sql
     assert "limit 20" in sql.lower()
+
+
+def test_hive_search_sql_uses_road_and_number_predicates() -> None:
+    client = HiveClient(
+        Settings(
+            hive_enabled=True,
+            hive_host="hive",
+            hive_database="default",
+            hive_table="ysk_datahub_address_standed",
+            hive_fetch_limit=20,
+            candidate_limit=8,
+        )
+    )
+
+    sql = client._build_search_sql(
+        query="乌鲁木齐市沙依巴克区友好北路689号美美友好购物中心H&M",
+        city="乌鲁木齐市",
+        district="沙依巴克区",
+        limit=8,
+    )
+
+    assert "coalesce(`road`, '') = '友好北路'" in sql
+    assert "coalesce(`road_no`, '') like '%689号%'" in sql
+    assert "coalesce(`road_no`, '') like '%689%'" in sql
+    assert "coalesce(`city`, '') = '乌鲁木齐市'" in sql
+    assert "coalesce(`county`, '') = '沙依巴克区'" in sql
+    assert "%乌鲁木齐市沙依巴克区友好北路689号美美友好购物中心H&M%" not in sql

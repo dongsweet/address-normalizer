@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from app.config import Settings
@@ -26,6 +27,13 @@ HIVE_SEARCH_COLUMNS = (
     "road",
     "xxdz",
 )
+
+
+@dataclass(frozen=True)
+class HiveSearchParts:
+    road: str | None = None
+    road_no: str | None = None
+    name: str | None = None
 
 
 class HiveClient:
@@ -122,22 +130,17 @@ class HiveClient:
     def _build_search_sql(self, *, query: str, city: str | None, district: str | None, limit: int) -> str:
         database = _safe_identifier(self.settings.hive_database)
         table = _safe_identifier(self.settings.hive_table)
-        like_query = _like_literal(query)
-        predicates = [
-            f"lower(coalesce(`{column}`, '')) like lower('{like_query}')" for column in HIVE_SEARCH_COLUMNS
-        ]
-        where_clauses = [f"({' OR '.join(predicates)})"]
+        parts = _extract_search_parts(query)
+        where_clauses = _structured_where_clauses(parts)
+        if not where_clauses:
+            where_clauses = [_full_text_where_clause(query)]
         target_city = city or self.settings.default_city
         if target_city:
             city_literal = _string_literal(target_city)
-            where_clauses.append(
-                "(coalesce(`city`, '') = '' or lower(`city`) = lower('{city}'))".format(city=city_literal)
-            )
+            where_clauses.append("coalesce(`city`, '') = '{city}'".format(city=city_literal))
         if district:
             district_literal = _string_literal(district)
-            where_clauses.append(
-                "(coalesce(`county`, '') = '' or lower(`county`) = lower('{district}'))".format(district=district_literal)
-            )
+            where_clauses.append("coalesce(`county`, '') = '{district}'".format(district=district_literal))
 
         fetch_limit = max(limit, min(self.settings.hive_fetch_limit, limit * 3))
         select_columns = [
@@ -239,6 +242,118 @@ def _safe_identifier(value: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_]+", value):
         raise ValueError(f"Unsafe Hive identifier: {value}")
     return value
+
+
+_ROAD_RE = re.compile(
+    r"(?P<road>[\u4e00-\u9fffa-zA-Z0-9]{2,40}(?:大道|公路|快速路|路|街|道|巷|弄))"
+    r"(?P<road_no>[0-9]{1,8}(?:号|號)?)?"
+)
+_ADMIN_SUFFIXES = ("自治州", "地区", "街道", "省", "市", "区", "县", "旗", "镇", "乡")
+_LATIN_STORE_RE = re.compile(r"[A-Za-z][A-Za-z0-9&+.'-]*$")
+
+
+def _extract_search_parts(query: str) -> HiveSearchParts:
+    compact = _compact_text(query)
+    if not compact:
+        return HiveSearchParts()
+
+    road_match = None
+    for match in _ROAD_RE.finditer(compact):
+        road = _trim_location_prefix(match.group("road"))
+        if len(road) >= 2:
+            road_match = (match, road)
+
+    if road_match:
+        match, road = road_match
+        road_no = _normalize_road_no(match.group("road_no"))
+        tail = compact[match.end() :]
+        name = _clean_name_hint(tail)
+        return HiveSearchParts(road=road, road_no=road_no, name=name)
+
+    return HiveSearchParts(name=_clean_name_hint(compact))
+
+
+def _structured_where_clauses(parts: HiveSearchParts) -> list[str]:
+    clauses: list[str] = []
+    if parts.road and parts.road_no:
+        clauses.append(_road_where_clause(parts.road))
+        clauses.append(_road_no_where_clause(parts.road_no))
+        return clauses
+    if parts.road and parts.name:
+        clauses.append(_road_where_clause(parts.road))
+        clauses.append(_contains_any_clause(["poi", "community", "stand_address", "src_address", "xxdz"], [parts.name]))
+        return clauses
+    return []
+
+
+def _full_text_where_clause(query: str) -> str:
+    like_query = _like_literal(query)
+    predicates = [f"coalesce(`{column}`, '') like '{like_query}'" for column in HIVE_SEARCH_COLUMNS]
+    return f"({' OR '.join(predicates)})"
+
+
+def _road_where_clause(road: str) -> str:
+    literal = _string_literal(road)
+    like_literal = _like_literal(road)
+    return (
+        "("
+        f"coalesce(`road`, '') = '{literal}' OR "
+        f"coalesce(`road`, '') like '{like_literal}' OR "
+        f"coalesce(`stand_address`, '') like '{like_literal}' OR "
+        f"coalesce(`src_address`, '') like '{like_literal}' OR "
+        f"coalesce(`xxdz`, '') like '{like_literal}'"
+        ")"
+    )
+
+
+def _road_no_where_clause(road_no: str) -> str:
+    terms = [road_no]
+    digits = re.sub(r"\D", "", road_no)
+    if digits and digits != road_no:
+        terms.append(digits)
+    return _contains_any_clause(["road_no", "subroad_no", "stand_address", "src_address", "xxdz", "part_path"], terms)
+
+
+def _contains_any_clause(columns: list[str], terms: list[str]) -> str:
+    predicates: list[str] = []
+    for term in terms:
+        if not term:
+            continue
+        literal = _like_literal(term)
+        predicates.extend(f"coalesce(`{column}`, '') like '{literal}'" for column in columns)
+    return f"({' OR '.join(predicates)})" if predicates else "(1 = 1)"
+
+
+def _trim_location_prefix(value: str) -> str:
+    text = value
+    for suffix in _ADMIN_SUFFIXES:
+        index = text.rfind(suffix)
+        if 0 <= index < len(text) - len(suffix):
+            text = text[index + len(suffix) :]
+    return text
+
+
+def _normalize_road_no(value: str | None) -> str | None:
+    if not value:
+        return None
+    text = value.replace("號", "号")
+    if text.isdigit():
+        return f"{text}号"
+    return text
+
+
+def _clean_name_hint(value: str | None) -> str | None:
+    text = _compact_text(value)
+    if not text:
+        return None
+    text = _LATIN_STORE_RE.sub("", text)
+    text = re.sub(r"(放前台|放门口|送前台|送门口)$", "", text)
+    text = text.strip("-_/\\|:：#")
+    return text if len(text) >= 4 else None
+
+
+def _compact_text(value: str | None) -> str:
+    return re.sub(r"[\s,，。;；]+", "", value or "")
 
 
 def _clean_text(value: Any) -> str | None:

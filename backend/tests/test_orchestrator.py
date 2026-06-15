@@ -98,6 +98,29 @@ def test_hive_failure_degrades_to_other_candidates() -> None:
     assert any("标准地址库查询失败" in warning for warning in result.warnings)
 
 
+def test_recall_scope_normalizes_common_district_aliases() -> None:
+    db = FakeDb()
+    agent = AddressAgent(
+        Settings(
+            hive_enabled=True,
+            hive_host="hive",
+            hive_table="ysk_datahub_address_standed",
+            qwen_base_url=None,
+            recall_scope_mode="auto",
+            default_city="乌鲁木齐市",
+        ),
+        db,
+        FakeQwen(),
+        FakeHive(),
+        FakeMgeo(),
+    )
+
+    asyncio.run(agent.normalize_one("沙区友好北路689号美美友好购物中心H&M，放前台", use_qwen=False))
+
+    assert db.last_city == "乌鲁木齐市"
+    assert db.last_district == "沙依巴克区"
+
+
 def test_weak_standard_candidate_rejects_without_qwen_confirmation() -> None:
     agent = AddressAgent(
         Settings(

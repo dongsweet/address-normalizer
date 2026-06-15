@@ -350,6 +350,14 @@ def _unique_texts(values: list[str]) -> list[str]:
 
 _CITY_RE = re.compile(r"(?P<city>[\u4e00-\u9fff]{2,20}(?:自治州|地区|盟|市))")
 _DISTRICT_RE = re.compile(r"(?P<district>[\u4e00-\u9fff]{1,20}(?:区|县|旗|市))")
+_DISTRICT_ALIASES = {
+    "沙区": RecallScope(city="乌鲁木齐市", district="沙依巴克区"),
+    "沙依巴克区": RecallScope(city="乌鲁木齐市", district="沙依巴克区"),
+    "水区": RecallScope(city="乌鲁木齐市", district="水磨沟区"),
+    "水磨沟区": RecallScope(city="乌鲁木齐市", district="水磨沟区"),
+    "米东": RecallScope(city="乌鲁木齐市", district="米东区"),
+    "米东区": RecallScope(city="乌鲁木齐市", district="米东区"),
+}
 
 
 def _resolve_recall_scope(raw_address: str, cleaned: str, settings: Settings) -> RecallScope:
@@ -374,7 +382,17 @@ def _extract_recall_scope(value: str) -> RecallScope:
     if city and district and district.startswith(city):
         stripped = district[len(city) :].strip()
         district = stripped or district
+    alias_scope = _district_alias_scope(district)
+    if alias_scope:
+        city = city or alias_scope.city
+        district = alias_scope.district
     return RecallScope(city=city, district=district)
+
+
+def _district_alias_scope(value: str | None) -> RecallScope | None:
+    if not value:
+        return None
+    return _DISTRICT_ALIASES.get(value)
 
 
 def _looks_like_mixed_input(raw_address: str, cleaned: str) -> bool:
