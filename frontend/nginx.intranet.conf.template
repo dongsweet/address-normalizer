@@ -1,12 +1,12 @@
 server {
-    listen 80;
+    listen ${FRONTEND_LISTEN_PORT};
     server_name _;
 
     root /usr/share/nginx/html;
     index index.html;
 
     location /api/ {
-        proxy_pass http://api:8000/api/;
+        proxy_pass ${FRONTEND_API_PROXY_TARGET}/api/;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

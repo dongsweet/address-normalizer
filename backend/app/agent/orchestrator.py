@@ -170,7 +170,7 @@ class AddressAgent:
                         )
                     )
                 except Exception as exc:  # noqa: BLE001
-                    warnings.append(f"标准地址库查询失败: {exc}")
+                    warnings.append(f"标准地址库查询失败: {_format_exception_chain(exc)}")
                     break
 
         _emit(progress, "rank", "本地候选排序")
@@ -418,6 +418,19 @@ def _merge_raw_model_output(base: dict[str, Any] | None, extra: dict[str, Any] |
     if extra:
         merged.update(extra)
     return merged
+
+
+def _format_exception_chain(exc: BaseException) -> str:
+    parts: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current and id(current) not in seen:
+        seen.add(id(current))
+        message = str(current).strip()
+        label = type(current).__name__
+        parts.append(f"{label}: {message}" if message else label)
+        current = current.__cause__ or current.__context__
+    return " <- ".join(parts)
 
 
 _BUILDING_TOKEN = r"[A-Za-z0-9一二三四五六七八九十百千万零〇两]+"

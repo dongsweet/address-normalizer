@@ -2,12 +2,11 @@ services:
   db:
     image: postgis/postgis:16-3.4
     container_name: address-normalizer-db
+    network_mode: host
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-address_normalizer}
       POSTGRES_USER: ${POSTGRES_USER:-address}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-address}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,8 +21,9 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     container_name: address-normalizer-api
+    network_mode: host
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://address:address@db:5432/address_normalizer}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://address:address@127.0.0.1:5432/address_normalizer}
       AUTO_INIT_DB: ${AUTO_INIT_DB:-true}
       AUTO_SEED_PUBLIC_POI: ${AUTO_SEED_PUBLIC_POI:-false}
       PUBLIC_POI_CSV: ${PUBLIC_POI_CSV:-/app/data/public_poi/urumqi_overture_poi_sample.csv}
@@ -51,10 +51,8 @@ services:
       HIVE_QUERY_TIMEOUT_SECONDS: ${HIVE_QUERY_TIMEOUT_SECONDS:-8}
       HIVE_FETCH_LIMIT: ${HIVE_FETCH_LIMIT:-20}
       MGEO_ENABLED: ${MGEO_ENABLED:-false}
-      MGEO_URL: ${MGEO_URL:-http://mgeo:8090}
+      MGEO_URL: ${MGEO_URL:-http://127.0.0.1:8090}
       MGEO_TIMEOUT_SECONDS: ${MGEO_TIMEOUT_SECONDS:-60}
-    ports:
-      - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -67,14 +65,13 @@ services:
       context: .
       dockerfile: mgeo_worker/Dockerfile.intranet
     container_name: address-normalizer-mgeo
+    network_mode: host
     environment:
       MGEO_MODEL_ID: ${MGEO_MODEL_ID:-iic/mgeo_geographic_elements_tagging_chinese_base}
       MGEO_MODEL_REVISION: ${MGEO_MODEL_REVISION:-}
       MGEO_LOAD_ON_STARTUP: ${MGEO_LOAD_ON_STARTUP:-true}
       MGEO_USE_MODEL: ${MGEO_USE_MODEL:-true}
       MODELSCOPE_CACHE: /root/.cache/modelscope
-    ports:
-      - "8090:8090"
 
   frontend:
     image: address-normalizer-frontend:intranet
@@ -82,8 +79,10 @@ services:
       context: .
       dockerfile: frontend/Dockerfile.intranet
     container_name: address-normalizer-frontend
-    ports:
-      - "5173:80"
+    network_mode: host
+    environment:
+      FRONTEND_LISTEN_PORT: ${FRONTEND_PORT:-5173}
+      FRONTEND_API_PROXY_TARGET: ${FRONTEND_API_PROXY_TARGET:-http://127.0.0.1:8000}
     depends_on:
       - api
 

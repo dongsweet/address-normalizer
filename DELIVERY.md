@@ -4,14 +4,17 @@
 
 ## Delivery Package
 
-建议交付这些文件：
+最小交付建议只给这些文件：
 
 - `address-normalizer-api_intranet.tar`
 - `address-normalizer-frontend_intranet.tar`
 - `postgis-16-3.4.tar`
-- `address-normalizer-mgeo_intranet.tar`（可选，仅在需要离线启用 MGeo 时提供）
 - `docker-compose.intranet.yml`
 - `.env.intranet.example`
+
+只有在需要离线启用 MGeo 时，再额外提供：
+
+- `address-normalizer-mgeo_intranet.tar`
 
 ## What Is Included
 
@@ -24,7 +27,8 @@
 - `mgeo`
   可选。若交付 `address-normalizer-mgeo:intranet`，模型已预打包进镜像，可离线启动
 
-这套交付包 **不包含本地模拟 Hive**。内网环境应直接连接真实 HiveServer2。
+这套交付包默认按 **Linux Docker host network** 运行，不再依赖 `api`、`db`、`mgeo` 这类容器名互联。
+内网环境应直接连接真实 HiveServer2，不包含本地模拟 Hive。
 
 ## Import Images
 
@@ -111,4 +115,6 @@ docker compose -f docker-compose.intranet.yml --profile mgeo up -d
 
 - `docker-compose.intranet.yml` 是最终交付使用的唯一 compose 文件
 - `docker-compose.hive.yml` 只用于本地或测试环境模拟 Hive，不属于内网交付内容
-- 交付环境如果前端和 API 一起通过 compose 启动，浏览器会通过前端 `/api` 代理访问后端，通常不需要额外处理 CORS
+- 前端默认监听 `5173`，并代理到 `127.0.0.1:8000`
+- API 默认访问 `127.0.0.1:5432` 的 PostgreSQL，以及 `127.0.0.1:8090` 的 MGeo（若启用）
+- 浏览器默认通过前端 `/api` 代理访问后端，通常不需要额外处理 CORS
