@@ -199,6 +199,18 @@ data/hive_sim/ysk_datahub_address_standed.tsv
 
 预期来源为 `standard`，标准库 provider 为 `doris`。
 
+如果需要给 Doris 样例表追加 10 万条合成数据用于压测：
+
+```bash
+bash scripts/generate_doris_synthetic.sh
+```
+
+默认只追加，不清空原有样例。需要重置目标表后再写入时显式加：
+
+```bash
+bash scripts/generate_doris_synthetic.sh --truncate --rows 100000
+```
+
 ## Acceptance Checklist
 
 1. 启动服务后打开 `/api/config/status`
