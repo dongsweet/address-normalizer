@@ -10,6 +10,7 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from app.admin_scope import resolve_admin_hint
 from app.schemas import AddressCandidate
 
 
@@ -535,7 +536,18 @@ class Database:
             query,
             limit,
         )
-        return [AddressCandidate(**row) for row in rows]
+        candidates: list[AddressCandidate] = []
+        for row in rows:
+            province = row.get("province")
+            city = row.get("city")
+            district = row.get("district")
+            if not (province and city and district):
+                hint = resolve_admin_hint(str(row.get("full_address") or ""))
+                row["province"] = province or hint.province
+                row["city"] = city or hint.city
+                row["district"] = district or hint.district
+            candidates.append(AddressCandidate(**row))
+        return candidates
 
     def search_standard(self, query: str, limit: int) -> list[AddressCandidate]:
         rows = self._search(

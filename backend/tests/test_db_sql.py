@@ -42,3 +42,31 @@ def test_auto_memory_aliases_keep_structural_observed_alias() -> None:
 
     assert ("江苏省南京市光明中路5981华府写字楼", "observed") in aliases
     assert ("华府写字楼", "name") not in aliases
+
+
+def test_search_memory_backfills_scope_from_full_address() -> None:
+    db = Database("postgresql://unused")
+    db._search = lambda sql, query, limit, extra=None: [  # type: ignore[method-assign]
+        {
+            "source": "memory",
+            "candidate_id": "M-1",
+            "name": "华府写字楼",
+            "full_address": "江苏省南京市玄武区金桥街道光明中路5981号华府写字楼",
+            "province": None,
+            "city": None,
+            "district": None,
+            "town": None,
+            "category": None,
+            "lon": None,
+            "lat": None,
+            "score": 0.96,
+            "evidence": "business-confirmed memory",
+            "metadata": {},
+        }
+    ]
+
+    candidates = db.search_memory("江苏华府写字楼", 5)
+
+    assert candidates[0].province == "江苏省"
+    assert candidates[0].city == "南京市"
+    assert candidates[0].district == "玄武区"

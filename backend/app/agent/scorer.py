@@ -157,9 +157,9 @@ def _has_context_beyond_name(raw: str, cleaned: str, candidate: AddressCandidate
     road, road_no = _extract_query_road_number(cleaned or raw)
     if road and road_no:
         return True
-    if _ROAD_RE.search(residual) and has_admin_scope(cleaned or raw):
+    if _ROAD_RE.search(residual) and _has_specific_admin_scope(cleaned or raw):
         return True
-    return has_admin_scope(residual)
+    return _has_specific_admin_scope(residual)
 
 
 def _candidate_has_detail(candidate: AddressCandidate) -> bool:
@@ -196,6 +196,13 @@ def _candidate_conflicts(raw: str, cleaned: str, candidate: AddressCandidate) ->
 def _extract_query_scope(value: str) -> tuple[str | None, str | None, str | None]:
     hint = resolve_admin_hint(value)
     return hint.province, hint.city, hint.district
+
+
+def _has_specific_admin_scope(value: str | None) -> bool:
+    if not value:
+        return False
+    hint = resolve_admin_hint(value)
+    return bool(hint.city or hint.district)
 
 
 def _extract_query_road_number(value: str) -> tuple[str | None, str | None]:

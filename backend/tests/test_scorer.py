@@ -217,3 +217,40 @@ def test_province_conflict_blocks_cross_province_candidates() -> None:
     assert ranked[1].candidate_id == "S-GD"
     assert "province" in ranked[1].metadata["score_features"]["conflicts"]
     assert ranked[1].score <= 0.68
+
+
+def test_province_only_scope_does_not_create_strong_anchor() -> None:
+    memory = score_candidate(
+        "江苏华府写字楼",
+        "江苏华府写字楼",
+        AddressCandidate(
+            source="memory",
+            candidate_id="M-JS",
+            name="华府写字楼",
+            full_address="江苏省南京市玄武区金桥街道光明中路5981号华府写字楼",
+            province="江苏省",
+            city="南京市",
+            district="玄武区",
+            score=0.96,
+            metadata={"matched_alias": "华府写字楼"},
+        ),
+    )
+    standard = score_candidate(
+        "江苏华府写字楼",
+        "江苏华府写字楼",
+        AddressCandidate(
+            source="standard",
+            candidate_id="S-JS",
+            name="华府写字楼",
+            full_address="江苏省苏州市吴中区南湖镇迎宾中大道8721号华府写字楼",
+            province="江苏省",
+            city="苏州市",
+            district="吴中区",
+            score=0.96,
+        ),
+    )
+
+    assert has_strong_anchor_evidence(memory) is False
+    assert has_strong_anchor_evidence(standard) is False
+    assert memory.score < _settings().memory_fast_path_score
+    assert standard.score < _settings().standard_fast_path_score
