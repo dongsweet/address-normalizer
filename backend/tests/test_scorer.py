@@ -91,6 +91,40 @@ def test_name_only_standard_and_auto_memory_do_not_fast_path() -> None:
     assert _fast_path_candidate([auto_memory], _settings()) is None
 
 
+def test_city_prefix_makes_name_match_contextual() -> None:
+    suzhou = score_candidate(
+        "苏州华府写字楼",
+        "苏州华府写字楼",
+        AddressCandidate(
+            source="standard",
+            candidate_id="S-SZ",
+            name="华府写字楼",
+            full_address="江苏省苏州市吴中区南湖镇迎宾中大道8721号华府写字楼",
+            city="苏州市",
+            district="吴中区",
+            score=0,
+        ),
+    )
+    nanjing = score_candidate(
+        "南京华府写字楼",
+        "南京华府写字楼",
+        AddressCandidate(
+            source="standard",
+            candidate_id="S-NJ",
+            name="华府写字楼",
+            full_address="江苏省南京市玄武区金桥街道光明中路5981号华府写字楼",
+            city="南京市",
+            district="玄武区",
+            score=0,
+        ),
+    )
+
+    assert has_strong_anchor_evidence(suzhou) is True
+    assert has_strong_anchor_evidence(nanjing) is True
+    assert suzhou.score >= _settings().standard_fast_path_score
+    assert nanjing.score >= _settings().standard_fast_path_score
+
+
 def test_standard_source_alone_does_not_fast_path() -> None:
     candidate = score_candidate("光明路北北", "光明路北北", _candidate("standard"))
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from app.agent.orchestrator import AddressAgent, _extract_recall_scope, _merge_input_detail, _selected_result
+from app.agent.orchestrator import AddressAgent, _build_recall_queries, _extract_recall_scope, _merge_input_detail, _selected_result
 from app.config import Settings
 from app.schemas import AddressCandidate
 
@@ -70,6 +70,14 @@ class FakeQwen:
         return None
 
 
+class SelectingQwen:
+    async def repair_cleaned_address(self, raw: str, cleaned: str) -> None:
+        return None
+
+    async def choose_candidate(self, raw: str, cleaned: str, candidates: list[AddressCandidate], mgeo_payload=None) -> dict:
+        return {"selected_index": 0, "confidence": 0.92, "match_level": "standard", "reason": "pick top"}
+
+
 class FakeMgeo:
     enabled = False
 
@@ -126,6 +134,23 @@ def test_recall_scope_extracts_city_and_district_after_province() -> None:
 
     assert scope.city == "石家庄市"
     assert scope.district == "长安区"
+
+
+def test_recall_scope_extracts_city_without_city_suffix() -> None:
+    suzhou_scope = _extract_recall_scope("苏州华府写字楼")
+    nanjing_scope = _extract_recall_scope("南京华府写字楼")
+
+    assert suzhou_scope.city == "苏州市"
+    assert suzhou_scope.district is None
+    assert nanjing_scope.city == "南京市"
+    assert nanjing_scope.district is None
+
+
+def test_recall_queries_strip_admin_scope_keywords() -> None:
+    queries = _build_recall_queries("南京华府写字楼", "南京华府写字楼")
+
+    assert "南京华府写字楼" in queries
+    assert "华府写字楼" in queries
 
 
 def test_recall_scope_does_not_treat_community_as_district() -> None:
@@ -220,6 +245,29 @@ def test_weak_standard_candidate_rejects_without_qwen_confirmation() -> None:
     )
 
     result = asyncio.run(agent.normalize_one("光明路北北", use_qwen=False))
+
+    assert result.source == "none"
+    assert result.anchor_type == "unmatched"
+    assert any("候选锚点证据不足" in warning for warning in result.warnings)
+
+
+def test_weak_standard_candidate_still_rejects_even_if_qwen_selects_it() -> None:
+    agent = AddressAgent(
+        Settings(
+            hive_enabled=True,
+            hive_host="hive",
+            hive_table="ysk_datahub_address_standed",
+            qwen_base_url="http://qwen.test",
+            qwen_model="qwen-test",
+            recall_scope_mode="auto",
+        ),
+        WeakStandardDb(),
+        SelectingQwen(),
+        WeakStandardHive(),
+        FakeMgeo(),
+    )
+
+    result = asyncio.run(agent.normalize_one("华府写字楼", use_qwen=True))
 
     assert result.source == "none"
     assert result.anchor_type == "unmatched"

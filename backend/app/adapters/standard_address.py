@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from app.admin_scope import query_without_admin_scope
 from app.schemas import AddressCandidate
 
 
@@ -63,10 +64,11 @@ def build_standard_search_sql(
 ) -> str:
     database = safe_identifier(database)
     table = safe_identifier(table)
-    parts = _extract_search_parts(query)
+    stripped_query = query_without_admin_scope(query) or query
+    parts = _extract_search_parts(stripped_query)
     where_clauses = _structured_where_clauses(parts)
     if not where_clauses:
-        where_clauses = [_full_text_where_clause(query)]
+        where_clauses = [_full_text_where_clause(stripped_query)]
 
     target_city = city or default_city
     if target_city:
@@ -148,7 +150,7 @@ _LATIN_STORE_RE = re.compile(r"[A-Za-z][A-Za-z0-9&+.'-]*$")
 
 
 def _extract_search_parts(query: str) -> StandardSearchParts:
-    compact = _compact_text(query)
+    compact = _compact_text(query_without_admin_scope(query))
     if not compact:
         return StandardSearchParts()
 

@@ -103,3 +103,27 @@ def test_hive_search_sql_does_not_fallback_to_default_city_in_auto_mode() -> Non
     assert "coalesce(`city`, '') = '乌鲁木齐市'" not in sql
     assert "红山西大道" in sql
     assert "1532号" in sql
+
+
+def test_hive_search_sql_strips_city_prefix_from_name_hint() -> None:
+    client = HiveClient(
+        Settings(
+            hive_enabled=True,
+            hive_host="hive",
+            hive_database="default",
+            hive_table="ysk_datahub_address_standed",
+            hive_fetch_limit=20,
+            candidate_limit=8,
+        )
+    )
+
+    sql = client._build_search_sql(
+        query="苏州华府写字楼",
+        city="苏州市",
+        district=None,
+        limit=8,
+    )
+
+    assert "coalesce(`city`, '') = '苏州市'" in sql
+    assert "%华府写字楼%" in sql
+    assert "%苏州华府写字楼%" not in sql

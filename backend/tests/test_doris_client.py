@@ -101,3 +101,28 @@ def test_doris_search_sql_fallbacks_to_default_city_in_fixed_mode() -> None:
     )
 
     assert "coalesce(`city`, '') = '乌鲁木齐市'" in sql
+
+
+def test_doris_search_sql_strips_city_prefix_from_name_hint() -> None:
+    client = DorisClient(
+        Settings(
+            standard_address_source="doris",
+            doris_enabled=True,
+            doris_host="doris",
+            doris_database="address_normalizer",
+            doris_table="ysk_datahub_address_standed",
+            doris_fetch_limit=20,
+            candidate_limit=8,
+        )
+    )
+
+    sql = client._build_search_sql(
+        query="南京华府写字楼",
+        city="南京市",
+        district=None,
+        limit=8,
+    )
+
+    assert "coalesce(`city`, '') = '南京市'" in sql
+    assert "%华府写字楼%" in sql
+    assert "%南京华府写字楼%" not in sql

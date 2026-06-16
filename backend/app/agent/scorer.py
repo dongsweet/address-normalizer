@@ -4,6 +4,7 @@ import re
 
 from rapidfuzz import fuzz
 
+from app.admin_scope import has_admin_scope, resolve_admin_hint
 from app.schemas import AddressCandidate
 
 
@@ -16,9 +17,6 @@ SOURCE_BOOSTS = {
 WEAK_MATCH_CEILING = 0.82
 CONFLICT_MATCH_CEILING = 0.68
 
-_PROVINCE_PREFIX_RE = re.compile(r"^(?P<province>[\u4e00-\u9fff]{2,20}(?:特别行政区|自治区|省))")
-_CITY_RE = re.compile(r"(?P<city>[\u4e00-\u9fff]{2,20}?(?:自治州|地区|盟|市))")
-_DISTRICT_RE = re.compile(r"(?P<district>[\u4e00-\u9fff]{1,20}?(?:区|县|旗|市))")
 _ROAD_WITH_NO_RE = re.compile(
     r"(?P<road>[\u4e00-\u9fffa-zA-Z0-9]{2,40}(?:大道|公路|快速路|路|街|道|巷|弄))"
     r"(?P<road_no>[0-9]{1,8}(?:号|號)?)"
@@ -159,14 +157,9 @@ def _has_context_beyond_name(raw: str, cleaned: str, candidate: AddressCandidate
     road, road_no = _extract_query_road_number(cleaned or raw)
     if road and road_no:
         return True
-    if _ROAD_RE.search(residual) and _has_admin_scope(cleaned or raw):
+    if _ROAD_RE.search(residual) and has_admin_scope(cleaned or raw):
         return True
-    return _has_admin_scope(residual)
-
-
-def _has_admin_scope(value: str) -> bool:
-    scoped_value = _strip_province_prefix(value)
-    return bool(_PROVINCE_PREFIX_RE.search(value) or _CITY_RE.search(scoped_value) or _DISTRICT_RE.search(scoped_value))
+    return has_admin_scope(residual)
 
 
 def _candidate_has_detail(candidate: AddressCandidate) -> bool:
@@ -199,28 +192,8 @@ def _candidate_conflicts(raw: str, cleaned: str, candidate: AddressCandidate) ->
 
 
 def _extract_query_scope(value: str) -> tuple[str | None, str | None]:
-    scoped_value = _strip_province_prefix(value)
-    city_match = _CITY_RE.search(scoped_value)
-    city = city_match.group("city") if city_match else None
-    district = _extract_district_after_city(scoped_value, city_match)
-    return city, district
-
-
-def _strip_province_prefix(value: str) -> str:
-    match = _PROVINCE_PREFIX_RE.match(value)
-    if not match:
-        return value
-    return value[match.end() :]
-
-
-def _extract_district_after_city(value: str, city_match: re.Match[str] | None) -> str | None:
-    search_value = value[city_match.end() :] if city_match else value
-    for match in _DISTRICT_RE.finditer(search_value):
-        district = match.group("district")
-        if district.endswith(("小区", "园区", "校区")):
-            continue
-        return district
-    return None
+    hint = resolve_admin_hint(value)
+    return hint.city, hint.district
 
 
 def _extract_query_road_number(value: str) -> tuple[str | None, str | None]:

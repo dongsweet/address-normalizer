@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from app.admin_scope import query_without_admin_scope, resolve_admin_hint
 from app.adapters.mgeo_client import MGeoClient
 from app.adapters.qwen_client import QwenClient
 from app.agent.cleaner import clean_address
@@ -149,8 +150,8 @@ class AddressAgent:
     ) -> PipelineAttempt:
         warnings: list[str] = []
         recall_query, input_detail = _split_input_detail(cleaned)
-        recall_queries = _unique_texts([cleaned, recall_query])
         recall_scope = _resolve_recall_scope(raw_address, cleaned, self.settings)
+        recall_queries = _build_recall_queries(cleaned, recall_query)
 
         _emit(progress, "recall", "召回记忆库和POI候选")
         candidates: list[AddressCandidate] = []
@@ -237,7 +238,7 @@ class AddressAgent:
             except Exception as exc:  # noqa: BLE001
                 warnings.append(f"Qwen候选选择失败: {exc}")
 
-        if selected and selected.source in {"memory", "standard"} and not selected_by_qwen and not has_strong_anchor_evidence(selected):
+        if selected and selected.source in {"memory", "standard"} and not has_strong_anchor_evidence(selected):
             warnings.append("候选锚点证据不足，不直接输出")
             selected = None
 
@@ -356,9 +357,6 @@ def _unique_texts(values: list[str]) -> list[str]:
     return unique
 
 
-_PROVINCE_PREFIX_RE = re.compile(r"^(?P<province>[\u4e00-\u9fff]{2,20}(?:特别行政区|自治区|省))")
-_CITY_RE = re.compile(r"(?P<city>[\u4e00-\u9fff]{2,20}?(?:自治州|地区|盟|市))")
-_DISTRICT_RE = re.compile(r"(?P<district>[\u4e00-\u9fff]{1,20}?(?:区|县|旗|市))")
 _DISTRICT_ALIASES = {
     "沙区": RecallScope(city="乌鲁木齐市", district="沙依巴克区"),
     "沙依巴克区": RecallScope(city="乌鲁木齐市", district="沙依巴克区"),
@@ -384,36 +382,14 @@ def _resolve_recall_scope(raw_address: str, cleaned: str, settings: Settings) ->
 
 
 def _extract_recall_scope(value: str) -> RecallScope:
-    scoped_value = _strip_province_prefix(value)
-    city_match = _CITY_RE.search(scoped_value)
-    city = city_match.group("city") if city_match else None
-    district = _extract_district_after_city(scoped_value, city_match)
-    if city and district and district.startswith(city):
-        stripped = district[len(city) :].strip()
-        district = stripped or district
+    hint = resolve_admin_hint(value)
+    city = hint.city
+    district = hint.district
     alias_scope = _district_alias_scope(district)
     if alias_scope:
         city = city or alias_scope.city
         district = alias_scope.district
     return RecallScope(city=city, district=district)
-
-
-def _strip_province_prefix(value: str) -> str:
-    match = _PROVINCE_PREFIX_RE.match(value)
-    if not match:
-        return value
-    return value[match.end() :]
-
-
-def _extract_district_after_city(value: str, city_match: re.Match[str] | None) -> str | None:
-    search_value = value[city_match.end() :] if city_match else value
-    for match in _DISTRICT_RE.finditer(search_value):
-        district = match.group("district")
-        if _looks_like_address_anchor(district):
-            continue
-        return district
-    return None
-
 
 def _looks_like_address_anchor(value: str) -> bool:
     return value.endswith("小区") or value.endswith("园区") or value.endswith("校区")
@@ -423,6 +399,17 @@ def _district_alias_scope(value: str | None) -> RecallScope | None:
     if not value:
         return None
     return _DISTRICT_ALIASES.get(value)
+
+
+def _build_recall_queries(cleaned: str, recall_query: str) -> list[str]:
+    queries = [cleaned, recall_query]
+    stripped_cleaned = query_without_admin_scope(cleaned)
+    stripped_recall = query_without_admin_scope(recall_query)
+    if stripped_cleaned:
+        queries.append(stripped_cleaned)
+    if stripped_recall:
+        queries.append(stripped_recall)
+    return _unique_texts(queries)
 
 
 def _looks_like_mixed_input(raw_address: str, cleaned: str) -> bool:
