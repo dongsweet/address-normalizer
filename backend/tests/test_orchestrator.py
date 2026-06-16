@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from app.agent.orchestrator import AddressAgent, _extract_recall_scope, _merge_input_detail
+from app.agent.orchestrator import AddressAgent, _extract_recall_scope, _merge_input_detail, _selected_result
 from app.config import Settings
 from app.schemas import AddressCandidate
 
@@ -146,6 +146,62 @@ def test_merge_input_detail_does_not_duplicate_existing_full_detail() -> None:
     }
 
     assert _merge_input_detail(base_address, detail) == base_address
+
+
+def test_selected_result_strips_candidate_detail_not_present_in_input() -> None:
+    candidate = AddressCandidate(
+        source="standard",
+        candidate_id="SYN-test100k-000888",
+        name="华府写字楼",
+        full_address="江苏省南京市玄武区金桥街道光明中路5981号华府写字楼41栋-6单元-6楼-0807室",
+        city="南京市",
+        district="玄武区",
+        town="金桥街道",
+        score=0.99,
+        metadata={"building": "41栋", "unit": "6单元", "floor": "6楼", "room": "0807室"},
+    )
+
+    result = _selected_result(
+        "江苏省南京市光明中路5981华府写字楼",
+        "江苏省南京市光明中路5981华府写字楼",
+        candidate,
+        [candidate],
+        [],
+        None,
+        None,
+    )
+
+    assert result.normalized_address == "江苏省南京市玄武区金桥街道光明中路5981号华府写字楼"
+    assert "候选包含输入未覆盖的楼栋/楼层/单元/房号，已截断到地址锚点" in result.warnings
+    assert "building" not in result.components
+
+
+def test_selected_result_keeps_only_input_detail_when_candidate_is_more_specific() -> None:
+    candidate = AddressCandidate(
+        source="standard",
+        candidate_id="SYN-test100k-000888",
+        name="华府写字楼",
+        full_address="江苏省南京市玄武区金桥街道光明中路5981号华府写字楼41栋-6单元-6楼-0807室",
+        city="南京市",
+        district="玄武区",
+        town="金桥街道",
+        score=0.99,
+        metadata={"building": "41栋", "unit": "6单元", "floor": "6楼", "room": "0807室"},
+    )
+
+    result = _selected_result(
+        "江苏省南京市光明中路5981华府写字楼41栋",
+        "江苏省南京市光明中路5981华府写字楼41栋",
+        candidate,
+        [candidate],
+        [],
+        None,
+        None,
+    )
+
+    assert result.normalized_address == "江苏省南京市玄武区金桥街道光明中路5981号华府写字楼41栋"
+    assert result.components["building"] == "41栋"
+    assert "unit" not in result.components
 
 
 def test_weak_standard_candidate_rejects_without_qwen_confirmation() -> None:

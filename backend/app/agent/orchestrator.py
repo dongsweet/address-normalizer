@@ -724,6 +724,45 @@ def _details_overlap(left: dict[str, str], right: dict[str, str]) -> bool:
 def _detail_part_key(value: str) -> str:
     return re.sub(r"(室|房|号房|号)$", "", _identity_text(value))
 
+
+def _strip_candidate_detail(selected: AddressCandidate) -> str:
+    metadata = selected.metadata or {}
+    detail_parts = [
+        _clean_detail_part(metadata.get("building")),
+        _clean_detail_part(metadata.get("unit")),
+        _clean_detail_part(metadata.get("floor")),
+        _clean_detail_part(metadata.get("room")),
+    ]
+    detail_parts = [part for part in detail_parts if part]
+    if not detail_parts:
+        return selected.full_address
+
+    suffixes: list[str] = []
+    for start in range(len(detail_parts)):
+        suffixes.extend(_detail_suffix_variants(detail_parts[start:]))
+
+    for suffix in sorted(set(suffixes), key=len, reverse=True):
+        if suffix and selected.full_address.endswith(suffix):
+            return _strip_anchor_separator(selected.full_address[: -len(suffix)])
+    return selected.full_address
+
+
+def _detail_suffix_variants(parts: list[str]) -> list[str]:
+    return [
+        "".join(parts),
+        "-".join(parts),
+        "_".join(parts),
+        "/".join(parts),
+    ]
+
+
+def _clean_detail_part(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 def _selected_result(
     raw_address: str,
     cleaned: str,
@@ -746,13 +785,17 @@ def _selected_result(
     }
     input_detail = input_detail or _input_detail(cleaned, selected)
     input_anchor, _ = _split_input_detail(cleaned)
-    normalized_address = _merge_input_detail(selected.full_address, input_detail)
+    output_base_address = _strip_candidate_detail(selected)
+    normalized_address = _merge_input_detail(output_base_address, input_detail)
     if input_detail:
         components.update(input_detail)
         if input_anchor:
             components["input_anchor"] = input_anchor
     if normalized_address != selected.full_address:
-        warnings.append("已保留输入中的楼栋/楼层/单元/房号")
+        if input_detail:
+            warnings.append("已保留输入中的楼栋/楼层/单元/房号")
+        elif output_base_address != selected.full_address:
+            warnings.append("候选包含输入未覆盖的楼栋/楼层/单元/房号，已截断到地址锚点")
 
     match_level = _match_level(selected)
     if qwen_output and qwen_output.get("match_level"):
