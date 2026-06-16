@@ -47,6 +47,7 @@ services:
       DORIS_USERNAME: root
       DORIS_PASSWORD: ""
     networks:
+      - default
       - doris_network
 
 networks:
