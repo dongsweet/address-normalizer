@@ -249,7 +249,9 @@ class AddressAgent:
                 warnings.append(f"Qwen候选选择失败: {exc}")
 
         if selected and selected.source in {"memory", "standard"} and not has_strong_anchor_evidence(selected):
-            if _selected_by_qwen(selected, selected_by_qwen, ranked, qwen_output) and _qwen_structured_anchor_allows_output(cleaned, selected, qwen_output, mgeo_payload):
+            if _unique_city_poi_allows_output(cleaned, selected, ranked):
+                warnings.append("城市级行政范围+POI唯一候选，允许输出锚点")
+            elif _selected_by_qwen(selected, selected_by_qwen, ranked, qwen_output) and _qwen_structured_anchor_allows_output(cleaned, selected, qwen_output, mgeo_payload):
                 warnings.append("Qwen确认省份+道路+POI结构化锚点，允许输出候选")
             else:
                 warnings.append("候选锚点证据不足，不直接输出")
@@ -530,6 +532,29 @@ def _selected_by_qwen(
     if not isinstance(selected_index, int) or not (0 <= selected_index < len(ranked)):
         return False
     return ranked[selected_index].candidate_id == selected.candidate_id
+
+
+def _unique_city_poi_allows_output(
+    cleaned: str,
+    selected: AddressCandidate,
+    ranked: list[AddressCandidate],
+) -> bool:
+    if len(ranked) != 1:
+        return False
+
+    hint = resolve_admin_hint(cleaned)
+    if not hint.city or not _same_scope_value(hint.city, selected.city):
+        return False
+
+    if _candidate_conflicts(selected):
+        return False
+
+    candidate_name = _compact_text(selected.name)
+    query_name = _compact_text(query_without_admin_scope(cleaned))
+    if not candidate_name or not query_name or candidate_name != query_name:
+        return False
+
+    return True
 
 
 def _query_road_from_context(cleaned: str, mgeo_payload: dict[str, Any] | None) -> str | None:

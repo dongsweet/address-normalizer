@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import asyncio
 
-from app.agent.orchestrator import AddressAgent, _build_recall_queries, _extract_recall_scope, _merge_input_detail, _selected_result
+from app.agent.orchestrator import (
+    AddressAgent,
+    _build_recall_queries,
+    _extract_recall_scope,
+    _merge_input_detail,
+    _selected_result,
+    _unique_city_poi_allows_output,
+)
 from app.config import Settings
 from app.schemas import AddressCandidate
 
@@ -470,3 +477,155 @@ def test_qwen_can_release_structured_anchor_without_fast_path() -> None:
     assert result.anchor_type == "standard"
     assert result.normalized_address == "江苏省苏州市姑苏区金桥乡长江中公路8670号华府写字楼"
     assert any("Qwen确认省份+道路+POI结构化锚点" in warning for warning in result.warnings)
+
+
+class UniqueCityPoiDb:
+    def search_memory(self, query: str, limit: int) -> list[AddressCandidate]:
+        return []
+
+    def search_poi(
+        self,
+        query: str,
+        province: str | None,
+        city: str | None,
+        district: str | None,
+        limit: int,
+    ) -> list[AddressCandidate]:
+        return []
+
+
+class UniqueCityPoiStandard:
+    enabled = True
+
+    async def search(
+        self,
+        query: str,
+        province: str | None,
+        city: str | None,
+        district: str | None,
+        limit: int,
+    ) -> list[AddressCandidate]:
+        return [
+            AddressCandidate(
+                source="standard",
+                candidate_id="S-NJ-1",
+                name="华府写字楼",
+                full_address="江苏省南京市玄武区金桥街道光明中路5981号华府写字楼41栋-6单元-6楼-0807室",
+                province="江苏省",
+                city="南京市",
+                district="玄武区",
+                town="金桥街道",
+                score=0.0,
+                metadata={
+                    "provider": "doris",
+                    "poi": "华府写字楼",
+                    "building": "41栋",
+                    "unit": "6单元",
+                    "floor": "6楼",
+                    "room": "0807室",
+                },
+            )
+        ]
+
+
+class MultiProvincePoiStandard:
+    enabled = True
+
+    async def search(
+        self,
+        query: str,
+        province: str | None,
+        city: str | None,
+        district: str | None,
+        limit: int,
+    ) -> list[AddressCandidate]:
+        return [
+            AddressCandidate(
+                source="standard",
+                candidate_id="S-JS-1",
+                name="华府写字楼",
+                full_address="江苏省南京市玄武区金桥街道光明中路5981号华府写字楼41栋-6单元-6楼-0807室",
+                province="江苏省",
+                city="南京市",
+                district="玄武区",
+                town="金桥街道",
+                score=0.0,
+                metadata={"provider": "doris", "poi": "华府写字楼"},
+            ),
+            AddressCandidate(
+                source="standard",
+                candidate_id="S-JS-2",
+                name="华府写字楼",
+                full_address="江苏省苏州市吴中区南湖镇迎宾中大道8721号华府写字楼28栋-6单元-2楼-1924室",
+                province="江苏省",
+                city="苏州市",
+                district="吴中区",
+                town="南湖镇",
+                score=0.0,
+                metadata={"provider": "doris", "poi": "华府写字楼"},
+            ),
+        ]
+
+
+def test_unique_city_poi_can_output_anchor_without_qwen() -> None:
+    agent = AddressAgent(
+        Settings(
+            standard_address_source="doris",
+            doris_enabled=True,
+            doris_host="doris",
+            doris_database="address_normalizer",
+            doris_table="ysk_datahub_address_standed",
+            qwen_base_url=None,
+            recall_scope_mode="auto",
+        ),
+        UniqueCityPoiDb(),
+        FakeQwen(),
+        UniqueCityPoiStandard(),
+        FakeMgeo(),
+    )
+
+    result = asyncio.run(agent.normalize_one("南京华府写字楼", use_qwen=False))
+
+    assert result.source == "standard"
+    assert result.anchor_type == "standard"
+    assert result.normalized_address == "江苏省南京市玄武区金桥街道光明中路5981号华府写字楼"
+
+
+def test_unique_city_poi_release_rule_accepts_unique_city_exact_poi() -> None:
+    candidate = AddressCandidate(
+        source="standard",
+        candidate_id="S-NJ-1",
+        name="华府写字楼",
+        full_address="江苏省南京市玄武区金桥街道光明中路5981号华府写字楼41栋-6单元-6楼-0807室",
+        province="江苏省",
+        city="南京市",
+        district="玄武区",
+        town="金桥街道",
+        score=0.82,
+        metadata={"provider": "doris", "poi": "华府写字楼", "score_features": {"conflicts": []}},
+    )
+
+    assert _unique_city_poi_allows_output("南京华府写字楼", candidate, [candidate]) is True
+
+
+def test_province_poi_only_still_rejects_when_not_unique() -> None:
+    agent = AddressAgent(
+        Settings(
+            standard_address_source="doris",
+            doris_enabled=True,
+            doris_host="doris",
+            doris_database="address_normalizer",
+            doris_table="ysk_datahub_address_standed",
+            qwen_base_url=None,
+            recall_scope_mode="auto",
+        ),
+        UniqueCityPoiDb(),
+        FakeQwen(),
+        MultiProvincePoiStandard(),
+        FakeMgeo(),
+    )
+
+    result = asyncio.run(agent.normalize_one("江苏华府写字楼", use_qwen=False))
+
+    assert result.source == "none"
+    assert result.anchor_type == "unmatched"
