@@ -2,111 +2,40 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCHEMA_SQL="${ROOT_DIR}/doris/init/001_schema.sql"
-SAMPLE_TSV="${ROOT_DIR}/data/hive_sim/ysk_datahub_address_standed.tsv"
+LOADER="${ROOT_DIR}/scripts/load_doris_sample.py"
 
-DORIS_HOST="${DORIS_HOST:-127.0.0.1}"
-DORIS_PORT="${DORIS_PORT:-9030}"
-DORIS_DATABASE="${DORIS_DATABASE:-address_normalizer}"
-DORIS_TABLE="${DORIS_TABLE:-ysk_datahub_address_standed}"
-DORIS_USERNAME="${DORIS_USERNAME:-root}"
-DORIS_PASSWORD="${DORIS_PASSWORD:-}"
-
-if ! command -v mysql >/dev/null 2>&1; then
-  echo "mysql client is required. Install mysql-client/mariadb-client first." >&2
-  exit 1
+if python3 -c "import pymysql" >/dev/null 2>&1; then
+  exec python3 "${LOADER}"
 fi
 
-MYSQL_ARGS=(
-  -h "${DORIS_HOST}"
-  -P "${DORIS_PORT}"
-  -u "${DORIS_USERNAME}"
-  --default-character-set=utf8mb4
-)
-
-if [[ -n "${DORIS_PASSWORD}" ]]; then
-  MYSQL_ARGS+=("-p${DORIS_PASSWORD}")
+if command -v docker >/dev/null 2>&1 \
+  && docker image inspect address-normalizer-api:intranet >/dev/null 2>&1 \
+  && docker network inspect address-normalizer_doris_network >/dev/null 2>&1; then
+  exec docker run --rm \
+    --network address-normalizer_doris_network \
+    -e DORIS_HOST="${DORIS_HOST:-172.20.80.2}" \
+    -e DORIS_PORT="${DORIS_PORT:-9030}" \
+    -e DORIS_DATABASE="${DORIS_DATABASE:-address_normalizer}" \
+    -e DORIS_TABLE="${DORIS_TABLE:-ysk_datahub_address_standed}" \
+    -e DORIS_USERNAME="${DORIS_USERNAME:-root}" \
+    -e DORIS_PASSWORD="${DORIS_PASSWORD:-}" \
+    -v "${ROOT_DIR}:/work" \
+    -w /work \
+    address-normalizer-api:intranet \
+    python /work/scripts/load_doris_sample.py
 fi
 
-python3 - "${SCHEMA_SQL}" "${DORIS_DATABASE}" "${DORIS_TABLE}" <<'PY' | mysql "${MYSQL_ARGS[@]}"
-from __future__ import annotations
+cat >&2 <<'EOF'
+Could not find a usable Doris sample loader runtime.
 
-import re
-import sys
-from pathlib import Path
+Use one of these options:
+1. Install backend dependencies, then rerun:
+   python3 -m pip install -r backend/requirements.txt
+   bash scripts/load_doris_sample.sh
 
-schema_path = Path(sys.argv[1])
-database = sys.argv[2]
-table = sys.argv[3]
-
-for value in (database, table):
-    if not re.fullmatch(r"[A-Za-z0-9_]+", value):
-        raise ValueError(f"unsafe identifier: {value}")
-
-sql = schema_path.read_text(encoding="utf-8")
-sql = sql.replace("address_normalizer", database)
-sql = sql.replace("ysk_datahub_address_standed", table)
-print(sql)
-PY
-
-python3 - "${SAMPLE_TSV}" "${DORIS_DATABASE}" "${DORIS_TABLE}" <<'PY' | mysql "${MYSQL_ARGS[@]}" "${DORIS_DATABASE}"
-from __future__ import annotations
-
-import csv
-import sys
-from pathlib import Path
-
-sample_path = Path(sys.argv[1])
-database = sys.argv[2]
-table = sys.argv[3]
-
-columns = [
-    "jxkid",
-    "cjd",
-    "rjxksj",
-    "xxdz",
-    "row_num_id",
-    "src_address",
-    "stand_address",
-    "city",
-    "county",
-    "develop_area",
-    "town",
-    "community",
-    "village_group",
-    "bus_area",
-    "road",
-    "sub_road",
-    "road_no",
-    "subroad_no",
-    "poi",
-    "building",
-    "unit",
-    "floor",
-    "room",
-    "part_path",
-]
-
-
-def ident(value: str) -> str:
-    if not value.replace("_", "").isalnum():
-        raise ValueError(f"unsafe identifier: {value}")
-    return f"`{value}`"
-
-
-def quote(value: str) -> str:
-    return "'" + value.replace("\\", "\\\\").replace("'", "''") + "'"
-
-
-column_sql = ", ".join(ident(column) for column in columns)
-print(f"USE {ident(database)};")
-print(f"TRUNCATE TABLE {ident(table)};")
-with sample_path.open("r", encoding="utf-8", newline="") as handle:
-    reader = csv.reader(handle, delimiter="\t")
-    for row in reader:
-        values = (row + [""] * len(columns))[: len(columns)]
-        value_sql = ", ".join(quote(value) for value in values)
-        print(f"INSERT INTO {ident(table)} ({column_sql}) VALUES ({value_sql});")
-PY
-
-echo "Loaded Doris sample data into ${DORIS_HOST}:${DORIS_PORT}/${DORIS_DATABASE}.${DORIS_TABLE}"
+2. Build the API image and start docker-compose.doris.yml, then rerun:
+   docker compose -f docker-compose.intranet.yml build api
+   docker compose -f docker-compose.yml -f docker-compose.doris.yml up -d doris-fe doris-be
+   bash scripts/load_doris_sample.sh
+EOF
+exit 1
