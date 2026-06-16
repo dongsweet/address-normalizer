@@ -14,6 +14,16 @@ SOURCE_BOOSTS = {
 }
 
 WEAK_MATCH_CEILING = 0.82
+CONFLICT_MATCH_CEILING = 0.68
+
+_PROVINCE_PREFIX_RE = re.compile(r"^(?P<province>[\u4e00-\u9fff]{2,20}(?:特别行政区|自治区|省))")
+_CITY_RE = re.compile(r"(?P<city>[\u4e00-\u9fff]{2,20}?(?:自治州|地区|盟|市))")
+_DISTRICT_RE = re.compile(r"(?P<district>[\u4e00-\u9fff]{1,20}?(?:区|县|旗|市))")
+_ROAD_WITH_NO_RE = re.compile(
+    r"(?P<road>[\u4e00-\u9fffa-zA-Z0-9]{2,40}(?:大道|公路|快速路|路|街|道|巷|弄))"
+    r"(?P<road_no>[0-9]{1,8}(?:号|號)?)"
+)
+_ADMIN_SUFFIXES = ("自治州", "地区", "街道", "省", "市", "区", "县", "旗", "镇", "乡")
 
 
 def clamp_score(value: float) -> float:
@@ -65,9 +75,14 @@ def score_candidate(raw: str, cleaned: str, candidate: AddressCandidate) -> Addr
     query_in_address = bool(query_key and len(query_key) >= 6 and query_key in full_key)
     has_detail = _has_detail_signal(query_key)
     candidate_has_detail = _candidate_has_detail(candidate)
-    strong_anchor = exact_alias or name_in_query or query_in_address
+    conflicts = _candidate_conflicts(raw, cleaned, candidate)
+    has_conflict = bool(conflicts)
+    strong_anchor = (exact_alias or name_in_query or query_in_address) and not has_conflict
 
-    if strong_anchor:
+    if has_conflict:
+        weak_similarity = max(fuzzy * 0.75, partial * 0.5)
+        score = min(weak_similarity + source_boost, CONFLICT_MATCH_CEILING)
+    elif strong_anchor:
         anchor_score = 0.97 if exact_alias else 0.94
         if has_detail and candidate_has_detail:
             anchor_score = max(anchor_score, 0.96)
@@ -89,6 +104,7 @@ def score_candidate(raw: str, cleaned: str, candidate: AddressCandidate) -> Addr
         "query_in_address": query_in_address,
         "has_detail": has_detail,
         "candidate_has_detail": candidate_has_detail,
+        "conflicts": conflicts,
     }
     return candidate
 
@@ -125,3 +141,102 @@ def _candidate_has_detail(candidate: AddressCandidate) -> bool:
     if any(value for value in detail_values):
         return True
     return _has_detail_signal(match_key(candidate.full_address))
+
+
+def _candidate_conflicts(raw: str, cleaned: str, candidate: AddressCandidate) -> list[str]:
+    conflicts: list[str] = []
+    city, district = _extract_query_scope(cleaned or raw)
+    if city and candidate.city and relaxed_match_key(city) != relaxed_match_key(candidate.city):
+        conflicts.append("city")
+    if district and candidate.district and relaxed_match_key(district) != relaxed_match_key(candidate.district):
+        conflicts.append("district")
+
+    road, road_no = _extract_query_road_number(cleaned or raw)
+    if road and road_no and not _candidate_matches_road_number(candidate, road, road_no):
+        conflicts.append("road_no")
+    return conflicts
+
+
+def _extract_query_scope(value: str) -> tuple[str | None, str | None]:
+    scoped_value = _strip_province_prefix(value)
+    city_match = _CITY_RE.search(scoped_value)
+    city = city_match.group("city") if city_match else None
+    district = _extract_district_after_city(scoped_value, city_match)
+    return city, district
+
+
+def _strip_province_prefix(value: str) -> str:
+    match = _PROVINCE_PREFIX_RE.match(value)
+    if not match:
+        return value
+    return value[match.end() :]
+
+
+def _extract_district_after_city(value: str, city_match: re.Match[str] | None) -> str | None:
+    search_value = value[city_match.end() :] if city_match else value
+    for match in _DISTRICT_RE.finditer(search_value):
+        district = match.group("district")
+        if district.endswith(("小区", "园区", "校区")):
+            continue
+        return district
+    return None
+
+
+def _extract_query_road_number(value: str) -> tuple[str | None, str | None]:
+    compact = match_key(value)
+    if not compact:
+        return None, None
+    matches = list(_ROAD_WITH_NO_RE.finditer(compact))
+    if not matches:
+        return None, None
+    match = matches[-1]
+    road = _trim_location_prefix(match.group("road"))
+    road_no = _normalize_road_no(match.group("road_no"))
+    return (road or None), road_no
+
+
+def _candidate_matches_road_number(candidate: AddressCandidate, road: str, road_no: str) -> bool:
+    candidate_text_key = match_key(
+        " ".join(
+            str(value)
+            for value in [
+                candidate.full_address,
+                candidate.metadata.get("src_address"),
+                candidate.metadata.get("xxdz"),
+                candidate.metadata.get("part_path"),
+            ]
+            if value
+        )
+    )
+    candidate_road = match_key(str(candidate.metadata.get("road") or ""))
+    road_key = match_key(road)
+    road_matches = bool(road_key and (road_key in candidate_text_key or road_key == candidate_road))
+
+    road_no_digits = re.sub(r"\D", "", road_no)
+    candidate_road_no_digits = re.sub(r"\D", "", str(candidate.metadata.get("road_no") or ""))
+    road_no_matches = bool(
+        road_no_digits
+        and (
+            road_no_digits in candidate_text_key
+            or (candidate_road_no_digits and road_no_digits == candidate_road_no_digits)
+        )
+    )
+    return road_matches and road_no_matches
+
+
+def _trim_location_prefix(value: str) -> str:
+    text = value
+    for suffix in _ADMIN_SUFFIXES:
+        index = text.rfind(suffix)
+        if 0 <= index < len(text) - len(suffix):
+            text = text[index + len(suffix) :]
+    return text
+
+
+def _normalize_road_no(value: str | None) -> str | None:
+    if not value:
+        return None
+    text = value.replace("號", "号")
+    if text.isdigit():
+        return f"{text}号"
+    return text

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.agent.orchestrator import _fast_path_candidate
-from app.agent.scorer import has_strong_anchor_evidence, score_candidate
+from app.agent.scorer import has_strong_anchor_evidence, rank_candidates, score_candidate
 from app.config import Settings
 from app.schemas import AddressCandidate
 
@@ -78,3 +78,37 @@ def test_fast_path_requires_strong_anchor_for_memory_and_standard() -> None:
     assert _fast_path_candidate([weak_memory], _settings()) is None
     assert _fast_path_candidate([strong_memory], _settings()) == strong_memory
     assert _fast_path_candidate([strong_standard], _settings()) == strong_standard
+
+
+def test_name_only_memory_candidate_loses_to_matching_standard_with_city_and_road() -> None:
+    raw = "江苏省南京市光明中路5981华府写字楼"
+    memory = AddressCandidate(
+        source="memory",
+        candidate_id="M-1",
+        name="华府写字楼",
+        full_address="江苏省苏州市吴中区南湖镇迎宾中大道8721号华府写字楼28栋-6单元-2楼-1924室",
+        city="苏州市",
+        district="吴中区",
+        score=0.92,
+        metadata={"matched_alias": "华府写字楼"},
+    )
+    standard = AddressCandidate(
+        source="standard",
+        candidate_id="S-1",
+        name="华府写字楼",
+        full_address="江苏省南京市玄武区金桥街道光明中路5981号华府写字楼41栋-6单元-6楼-0807室",
+        city="南京市",
+        district="玄武区",
+        score=0,
+        metadata={"provider": "doris", "road": "光明中路", "road_no": "5981号"},
+    )
+
+    ranked = rank_candidates(raw, raw, [memory, standard], 2)
+
+    assert ranked[0].candidate_id == "S-1"
+    assert ranked[0].score >= _settings().standard_fast_path_score
+    assert ranked[1].candidate_id == "M-1"
+    assert ranked[1].score <= 0.68
+    assert has_strong_anchor_evidence(ranked[1]) is False
+    assert "city" in ranked[1].metadata["score_features"]["conflicts"]
+    assert "road_no" in ranked[1].metadata["score_features"]["conflicts"]
