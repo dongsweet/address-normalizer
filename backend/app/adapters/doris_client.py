@@ -96,7 +96,7 @@ class DorisClient:
             query=query,
             city=city,
             district=district,
-            default_city=self.settings.default_city,
+            default_city=self._default_city_for_search(),
             fetch_limit=fetch_limit,
         )
 
@@ -121,13 +121,16 @@ class DorisClient:
                 result_count=result_count,
                 error_message=error_message,
                 metadata={
-                    "city": city or self.settings.default_city,
+                    "city": city or self._default_city_for_search(),
                     "district": district,
                     "table": self.settings.doris_table,
                 },
             )
         except Exception:  # noqa: BLE001
             return
+
+    def _default_city_for_search(self) -> str | None:
+        return self.settings.default_city if self.settings.recall_scope_mode == "fixed" else None
 
 
 def map_doris_row(row: dict[str, Any], *, table: str) -> AddressCandidate | None:

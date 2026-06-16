@@ -53,3 +53,51 @@ def test_doris_search_sql_uses_road_and_number_predicates() -> None:
     assert "coalesce(`road_no`, '') like '%689号%'" in sql
     assert "coalesce(`city`, '') = '乌鲁木齐市'" in sql
     assert "coalesce(`county`, '') = '沙依巴克区'" in sql
+
+
+def test_doris_search_sql_does_not_fallback_to_default_city_in_auto_mode() -> None:
+    client = DorisClient(
+        Settings(
+            standard_address_source="doris",
+            doris_enabled=True,
+            doris_host="doris",
+            doris_database="address_normalizer",
+            doris_table="ysk_datahub_address_standed",
+            recall_scope_mode="auto",
+            default_city="乌鲁木齐市",
+        )
+    )
+
+    sql = client._build_search_sql(
+        query="高新乡红山西大道1532号德汇家园6栋6单元18楼3115室",
+        city=None,
+        district=None,
+        limit=8,
+    )
+
+    assert "coalesce(`city`, '') = '乌鲁木齐市'" not in sql
+    assert "红山西大道" in sql
+    assert "1532号" in sql
+
+
+def test_doris_search_sql_fallbacks_to_default_city_in_fixed_mode() -> None:
+    client = DorisClient(
+        Settings(
+            standard_address_source="doris",
+            doris_enabled=True,
+            doris_host="doris",
+            doris_database="address_normalizer",
+            doris_table="ysk_datahub_address_standed",
+            recall_scope_mode="fixed",
+            default_city="乌鲁木齐市",
+        )
+    )
+
+    sql = client._build_search_sql(
+        query="友好北路689号美美友好购物中心H&M",
+        city=None,
+        district=None,
+        limit=8,
+    )
+
+    assert "coalesce(`city`, '') = '乌鲁木齐市'" in sql
