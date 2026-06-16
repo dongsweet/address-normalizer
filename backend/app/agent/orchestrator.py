@@ -249,7 +249,7 @@ class AddressAgent:
                 warnings.append(f"Qwen候选选择失败: {exc}")
 
         if selected and selected.source in {"memory", "standard"} and not has_strong_anchor_evidence(selected):
-            if selected_by_qwen and _qwen_structured_anchor_allows_output(cleaned, selected, qwen_output, mgeo_payload):
+            if _selected_by_qwen(selected, selected_by_qwen, ranked, qwen_output) and _qwen_structured_anchor_allows_output(cleaned, selected, qwen_output, mgeo_payload):
                 warnings.append("Qwen确认省份+道路+POI结构化锚点，允许输出候选")
             else:
                 warnings.append("候选锚点证据不足，不直接输出")
@@ -514,6 +514,22 @@ def _qwen_structured_anchor_allows_output(
     if not query_road or not candidate_road:
         return False
     return _identity_text(query_road) == _identity_text(candidate_road)
+
+
+def _selected_by_qwen(
+    selected: AddressCandidate,
+    selected_by_qwen: bool,
+    ranked: list[AddressCandidate],
+    qwen_output: dict[str, Any] | None,
+) -> bool:
+    if selected_by_qwen:
+        return True
+    if not qwen_output:
+        return False
+    selected_index = qwen_output.get("selected_index")
+    if not isinstance(selected_index, int) or not (0 <= selected_index < len(ranked)):
+        return False
+    return ranked[selected_index].candidate_id == selected.candidate_id
 
 
 def _query_road_from_context(cleaned: str, mgeo_payload: dict[str, Any] | None) -> str | None:
