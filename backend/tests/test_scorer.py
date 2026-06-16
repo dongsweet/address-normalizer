@@ -33,8 +33,8 @@ def test_short_fuzzy_input_does_not_get_high_confidence() -> None:
     assert has_strong_anchor_evidence(memory) is False
 
 
-def test_complete_anchor_and_detail_can_score_high() -> None:
-    anchor = score_candidate("光明路北小区", "光明路北小区", _candidate("standard"))
+def test_complete_anchor_with_context_and_detail_can_score_high() -> None:
+    anchor = score_candidate("乌鲁木齐市光明路北小区", "乌鲁木齐市光明路北小区", _candidate("standard"))
     detail = score_candidate(
         "光明路北小区18栋1单元2层8号",
         "光明路北小区18栋1单元2层8号",
@@ -52,6 +52,43 @@ def test_complete_anchor_and_detail_can_score_high() -> None:
     assert has_strong_anchor_evidence(anchor) is True
     assert has_strong_anchor_evidence(detail) is True
     assert has_strong_anchor_evidence(exact_alias) is True
+
+
+def test_name_only_standard_and_auto_memory_do_not_fast_path() -> None:
+    standard = score_candidate(
+        "华府写字楼",
+        "华府写字楼",
+        AddressCandidate(
+            source="standard",
+            candidate_id="S-1",
+            name="华府写字楼",
+            full_address="江苏省苏州市吴中区南湖镇迎宾中大道8721号华府写字楼",
+            city="苏州市",
+            district="吴中区",
+            score=0.88,
+        ),
+    )
+    auto_memory = score_candidate(
+        "华府写字楼",
+        "华府写字楼",
+        AddressCandidate(
+            source="memory",
+            candidate_id="M-1",
+            name="华府写字楼",
+            full_address="江苏省苏州市吴中区南湖镇迎宾中大道8721号华府写字楼",
+            city="苏州市",
+            district="吴中区",
+            score=0.96,
+            metadata={"matched_alias": "华府写字楼", "alias_kind": "observed", "confirmed_by": "auto"},
+        ),
+    )
+
+    assert standard.score < _settings().standard_fast_path_score
+    assert auto_memory.score < _settings().memory_fast_path_score
+    assert has_strong_anchor_evidence(standard) is False
+    assert has_strong_anchor_evidence(auto_memory) is False
+    assert _fast_path_candidate([standard], _settings()) is None
+    assert _fast_path_candidate([auto_memory], _settings()) is None
 
 
 def test_standard_source_alone_does_not_fast_path() -> None:

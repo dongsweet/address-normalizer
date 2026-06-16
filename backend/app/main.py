@@ -38,6 +38,14 @@ agent = AddressAgent(settings, db, qwen, standard_client, mgeo)
 AUTO_PERSIST_WARNING = "已自动沉淀到记忆库"
 AUTO_PERSIST_SOURCES = {"standard"}
 STANDARD_AUTO_PERSIST_MIN_CONFIDENCE = 0.95
+_ROAD_WITH_NO_RE = re.compile(
+    r"(?P<road>[\u4e00-\u9fffa-zA-Z0-9]{2,40}(?:大道|公路|快速路|路|街|道|巷|弄))"
+    r"(?P<road_no>[0-9]{1,8}(?:号|號)?)"
+)
+_ROAD_RE = re.compile(r"[\u4e00-\u9fffa-zA-Z0-9]{2,40}(?:大道|公路|快速路|路|街|道|巷|弄)")
+_PROVINCE_PREFIX_RE = re.compile(r"^(?P<province>[\u4e00-\u9fff]{2,20}(?:特别行政区|自治区|省))")
+_CITY_RE = re.compile(r"(?P<city>[\u4e00-\u9fff]{2,20}?(?:自治州|地区|盟|市))")
+_DISTRICT_RE = re.compile(r"(?P<district>[\u4e00-\u9fff]{1,20}?(?:区|县|旗|市))")
 
 
 @asynccontextmanager
@@ -282,7 +290,7 @@ def _should_auto_persist(result: NormalizedAddress) -> bool:
         return False
     if result.confidence < max(settings.auto_memory_min_confidence, STANDARD_AUTO_PERSIST_MIN_CONFIDENCE):
         return False
-    return _result_covers_input(result)
+    return _result_covers_input(result) and _has_auto_persist_locator(result)
 
 
 def _result_covers_input(result: NormalizedAddress) -> bool:
@@ -324,6 +332,8 @@ def _input_residual(result: NormalizedAddress) -> str:
             if key.endswith(suffix):
                 residual = residual.replace(key[: -len(suffix)], "")
 
+    residual = _strip_location_terms(residual, _location_terms_from_text(result.normalized_address))
+    residual = _strip_covered_road_numbers(residual, result.normalized_address)
     residual = _strip_non_anchor_terms(residual, components)
     return residual if len(residual) > 3 else ""
 
@@ -347,6 +357,8 @@ def _auto_persist_reason(result: NormalizedAddress, enabled: bool, persisted: bo
     residual = _input_residual(result)
     if residual:
         return f"输入里仍有未被最终结果覆盖的关键信号：{residual}"
+    if not _has_auto_persist_locator(result):
+        return "输入缺少道路门牌、楼栋房号或行政区划等可安全沉淀的定位信号"
     return "未满足自动沉淀条件"
 
 
@@ -367,8 +379,7 @@ def _signal_key(value: str | None) -> str:
 
 def _strip_non_anchor_terms(value: str, components: dict[str, Any] | None = None) -> str:
     text = value
-    for term in _location_terms(components):
-        text = text.replace(term, "")
+    text = _strip_location_terms(text, _location_terms(components))
     for term in (
         "送到",
         "快递",
@@ -387,6 +398,83 @@ def _strip_non_anchor_terms(value: str, components: dict[str, Any] | None = None
     return text
 
 
+def _strip_location_terms(value: str, terms: list[str]) -> str:
+    text = value
+    for term in terms:
+        text = text.replace(_signal_key(term), "")
+    return text
+
+
+def _strip_covered_road_numbers(value: str, normalized_address: str) -> str:
+    normalized_key = _signal_key(normalized_address)
+    residual = value
+    for match in list(_ROAD_WITH_NO_RE.finditer(value)):
+        token = match.group(0)
+        road_key = _signal_key(match.group("road"))
+        road_no_digits = re.sub(r"\D", "", match.group("road_no") or "")
+        if road_key and road_key in normalized_key and road_no_digits and road_no_digits in normalized_key:
+            residual = residual.replace(token, "")
+    return residual
+
+
+def _has_auto_persist_locator(result: NormalizedAddress) -> bool:
+    text = result.cleaned_input or result.input
+    input_key = _signal_key(text)
+    normalized_key = _signal_key(result.normalized_address)
+    if not input_key or not normalized_key:
+        return False
+
+    components = result.components or {}
+    name_key = _signal_key(str(components.get("name") or ""))
+    residual = input_key.replace(name_key, "", 1) if name_key else input_key
+
+    if _input_detail_is_covered(input_key, normalized_key, components):
+        return True
+
+    road_no_match = _ROAD_WITH_NO_RE.search(input_key)
+    if road_no_match:
+        road_no_digits = re.sub(r"\D", "", road_no_match.group("road_no") or "")
+        if road_no_digits and road_no_digits in normalized_key:
+            return True
+
+    if _has_admin_scope(text) and _ROAD_RE.search(residual):
+        return True
+
+    return False
+
+
+def _input_detail_is_covered(input_key: str, normalized_key: str, components: dict[str, Any]) -> bool:
+    if not _has_detail_signal(input_key):
+        return False
+    detail_values = [
+        str(components.get("address_detail") or ""),
+        str(components.get("building") or ""),
+        str(components.get("unit") or ""),
+        str(components.get("floor") or ""),
+        str(components.get("room") or ""),
+    ]
+    return any((key := _signal_key(value)) and key in normalized_key for value in detail_values)
+
+
+def _has_detail_signal(value: str) -> bool:
+    return bool(
+        re.search(r"\d+(?:栋|号楼|单元|楼|层|室|房|号)", value)
+        or re.search(r"\d+-\d+", value)
+    )
+
+
+def _has_admin_scope(value: str) -> bool:
+    scoped_value = _strip_province_prefix(value)
+    return bool(_PROVINCE_PREFIX_RE.search(value) or _CITY_RE.search(scoped_value) or _DISTRICT_RE.search(scoped_value))
+
+
+def _strip_province_prefix(value: str) -> str:
+    match = _PROVINCE_PREFIX_RE.match(value)
+    if not match:
+        return value
+    return value[match.end() :]
+
+
 def _location_terms(components: dict[str, Any] | None) -> list[str]:
     suffixes = ("维吾尔自治区", "自治区", "自治州", "地区", "省", "市", "区", "县", "旗")
     values = [
@@ -395,6 +483,47 @@ def _location_terms(components: dict[str, Any] | None) -> list[str]:
         str((components or {}).get("district") or ""),
         str((components or {}).get("town") or ""),
     ]
+    terms: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        token = value.strip()
+        if not token:
+            continue
+        variants = [token]
+        for suffix in suffixes:
+            if token.endswith(suffix):
+                variants.append(token[: -len(suffix)])
+        for item in variants:
+            normalized = item.strip()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                terms.append(normalized)
+    return terms
+
+
+def _location_terms_from_text(value: str | None) -> list[str]:
+    text = value or ""
+    if not text:
+        return []
+    terms: list[str] = []
+    province_match = _PROVINCE_PREFIX_RE.match(text)
+    if province_match:
+        terms.append(province_match.group("province"))
+        text = text[province_match.end() :]
+    city_match = _CITY_RE.search(text)
+    if city_match:
+        terms.append(city_match.group("city"))
+    search_value = text[city_match.end() :] if city_match else text
+    for district_match in _DISTRICT_RE.finditer(search_value):
+        district = district_match.group("district")
+        if not district.endswith(("小区", "园区", "校区")):
+            terms.append(district)
+            break
+    return _location_term_variants(terms)
+
+
+def _location_term_variants(values: list[str]) -> list[str]:
+    suffixes = ("维吾尔自治区", "自治区", "自治州", "地区", "省", "市", "区", "县", "旗")
     terms: list[str] = []
     seen: set[str] = set()
     for value in values:

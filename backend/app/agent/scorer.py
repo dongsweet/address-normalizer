@@ -23,6 +23,7 @@ _ROAD_WITH_NO_RE = re.compile(
     r"(?P<road>[\u4e00-\u9fffa-zA-Z0-9]{2,40}(?:大道|公路|快速路|路|街|道|巷|弄))"
     r"(?P<road_no>[0-9]{1,8}(?:号|號)?)"
 )
+_ROAD_RE = re.compile(r"[\u4e00-\u9fffa-zA-Z0-9]{2,40}(?:大道|公路|快速路|路|街|道|巷|弄)")
 _ADMIN_SUFFIXES = ("自治州", "地区", "街道", "省", "市", "区", "县", "旗", "镇", "乡")
 
 
@@ -74,10 +75,14 @@ def score_candidate(raw: str, cleaned: str, candidate: AddressCandidate) -> Addr
     name_in_query = bool(name_key and name_key in query_key)
     query_in_address = bool(query_key and len(query_key) >= 6 and query_key in full_key)
     has_detail = _has_detail_signal(query_key)
+    has_context = _has_context_beyond_name(raw, cleaned, candidate)
     candidate_has_detail = _candidate_has_detail(candidate)
     conflicts = _candidate_conflicts(raw, cleaned, candidate)
     has_conflict = bool(conflicts)
-    strong_anchor = (exact_alias or name_in_query or query_in_address) and not has_conflict
+    trusted_exact_alias = exact_alias and _is_trusted_exact_alias_match(query_key, candidate, has_context or has_detail)
+    contextual_name_match = name_in_query and has_context
+    contextual_address_match = query_in_address and has_context
+    strong_anchor = (trusted_exact_alias or contextual_name_match or contextual_address_match) and not has_conflict
 
     if has_conflict:
         weak_similarity = max(fuzzy * 0.75, partial * 0.5)
@@ -100,8 +105,10 @@ def score_candidate(raw: str, cleaned: str, candidate: AddressCandidate) -> Addr
         "partial": round(partial, 4),
         "db_score": round(db_score, 4),
         "exact_alias": exact_alias,
+        "trusted_exact_alias": trusted_exact_alias,
         "name_in_query": name_in_query,
         "query_in_address": query_in_address,
+        "has_context": has_context,
         "has_detail": has_detail,
         "candidate_has_detail": candidate_has_detail,
         "conflicts": conflicts,
@@ -121,11 +128,45 @@ def _is_exact_alias_match(query_key: str, candidate: AddressCandidate) -> bool:
     return bool(query_key and alias_key and query_key == alias_key)
 
 
+def _is_trusted_exact_alias_match(query_key: str, candidate: AddressCandidate, has_context: bool) -> bool:
+    if candidate.source != "memory":
+        return True
+    confirmed_by = str(candidate.metadata.get("confirmed_by") or "").lower()
+    alias_confirmed_by = str(candidate.metadata.get("alias_confirmed_by") or "").lower()
+    alias_kind = str(candidate.metadata.get("alias_kind") or "").lower()
+    if confirmed_by != "auto" and alias_confirmed_by != "auto":
+        return True
+    if alias_kind == "normalized":
+        return True
+    return has_context or _has_detail_signal(query_key)
+
+
 def _has_detail_signal(query_key: str) -> bool:
     return bool(
         re.search(r"\d+(?:栋|号楼|单元|楼|层|室|房|号)", query_key)
         or re.search(r"\d+-\d+", query_key)
     )
+
+
+def _has_context_beyond_name(raw: str, cleaned: str, candidate: AddressCandidate) -> bool:
+    query_key = match_key(cleaned or raw)
+    name_key = match_key(candidate.name)
+    if not query_key:
+        return False
+    residual = query_key.replace(name_key, "", 1) if name_key else query_key
+    if _has_detail_signal(residual):
+        return True
+    road, road_no = _extract_query_road_number(cleaned or raw)
+    if road and road_no:
+        return True
+    if _ROAD_RE.search(residual) and _has_admin_scope(cleaned or raw):
+        return True
+    return _has_admin_scope(residual)
+
+
+def _has_admin_scope(value: str) -> bool:
+    scoped_value = _strip_province_prefix(value)
+    return bool(_PROVINCE_PREFIX_RE.search(value) or _CITY_RE.search(scoped_value) or _DISTRICT_RE.search(scoped_value))
 
 
 def _candidate_has_detail(candidate: AddressCandidate) -> bool:

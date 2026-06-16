@@ -124,15 +124,17 @@ CREATE INDEX IF NOT EXISTS idx_memory_alias_text_trgm ON address_memory_alias US
 INSERT INTO address_memory_alias (
     memory_id, alias_text, alias_kind, city, district, confirmed_by
 )
-SELECT memory.id, aliases.alias_text, 'backfill', memory.city, memory.district, memory.confirmed_by
+SELECT memory.id, aliases.alias_text, aliases.alias_kind, memory.city, memory.district, memory.confirmed_by
 FROM address_memory AS memory
 CROSS JOIN LATERAL (
     VALUES
-        (NULLIF(BTRIM(memory.raw_address_pattern), '')),
-        (NULLIF(BTRIM(memory.normalized_address), '')),
-        (NULLIF(BTRIM(memory.components->>'name'), ''))
-) AS aliases(alias_text)
-WHERE aliases.alias_text IS NOT NULL
+        (NULLIF(BTRIM(memory.raw_address_pattern), ''), 'observed'),
+        (NULLIF(BTRIM(memory.normalized_address), ''), 'normalized'),
+        (NULLIF(BTRIM(memory.components->>'name'), ''), 'name')
+) AS aliases(alias_text, alias_kind)
+WHERE
+    aliases.alias_text IS NOT NULL
+    AND (memory.confirmed_by IS DISTINCT FROM 'auto' OR aliases.alias_kind = 'normalized')
 ON CONFLICT (memory_id, alias_text) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS address_detail_memory (
@@ -198,6 +200,23 @@ CREATE INDEX IF NOT EXISTS idx_api_call_log_provider_ts ON api_call_log (provide
 CREATE INDEX IF NOT EXISTS idx_api_call_log_date ON api_call_log (((timestamp AT TIME ZONE 'UTC')::date));
 """
 
+AUTO_MEMORY_ALIAS_CLEANUP_SQL = """
+DELETE FROM address_memory_alias AS alias
+USING address_memory AS memory
+WHERE
+    alias.memory_id = memory.id
+    AND COALESCE(alias.confirmed_by, memory.confirmed_by) = 'auto'
+    AND alias.alias_kind IN ('observed', 'name', 'backfill')
+    AND BTRIM(alias.alias_text) <> BTRIM(memory.normalized_address)
+    AND (
+        BTRIM(alias.alias_text) = BTRIM(COALESCE(memory.components->>'name', ''))
+        OR (
+            BTRIM(alias.alias_text) = BTRIM(memory.raw_address_pattern)
+            AND BTRIM(alias.alias_text) !~ '[0-9]'
+        )
+    );
+"""
+
 
 class Database:
     def __init__(self, url: str) -> None:
@@ -211,6 +230,7 @@ class Database:
     def initialize(self) -> None:
         with self.connection() as conn:
             conn.execute(SCHEMA_SQL)
+            conn.execute(AUTO_MEMORY_ALIAS_CLEANUP_SQL)
             conn.commit()
 
     def seed_public_poi(self, csv_path: Path) -> int:
@@ -468,10 +488,12 @@ class Database:
                     'anchor_type', memory.anchor_type,
                     'anchor_id', memory.anchor_id,
                     'anchor_source', memory.anchor_source,
+                    'confirmed_by', memory.confirmed_by,
                     'stored_normalized_address', memory.normalized_address,
                     'hit_count', memory.hit_count,
                     'matched_alias', alias_match.alias_text,
                     'alias_kind', alias_match.alias_kind,
+                    'alias_confirmed_by', alias_match.confirmed_by,
                     'alias_hit_count', alias_match.hit_count
                 ) AS metadata
             FROM address_memory AS memory
@@ -482,6 +504,7 @@ class Database:
                 SELECT
                     alias.alias_text,
                     alias.alias_kind,
+                    alias.confirmed_by,
                     alias.hit_count,
                     GREATEST(
                         similarity(alias.alias_text, %(query)s),
@@ -730,7 +753,12 @@ class Database:
             self._upsert_memory_aliases(
                 conn,
                 memory_id=memory_id,
-                aliases=_memory_alias_entries(raw_address, normalized_address, anchor_components),
+                aliases=_memory_alias_entries(
+                    raw_address,
+                    normalized_address,
+                    anchor_components,
+                    confirmed_by=payload.get("confirmed_by"),
+                ),
                 components=anchor_components,
                 confirmed_by=payload.get("confirmed_by"),
             )
@@ -880,6 +908,14 @@ class Database:
 
 
 DETAIL_COMPONENT_KEYS = {"building", "unit", "floor", "room", "address_detail"}
+_ALIAS_ROAD_WITH_NO_RE = re.compile(
+    r"(?P<road>[\u4e00-\u9fffa-zA-Z0-9]{2,40}(?:大道|公路|快速路|路|街|道|巷|弄))"
+    r"(?P<road_no>[0-9]{1,8}(?:号|號)?)"
+)
+_ALIAS_ROAD_RE = re.compile(r"[\u4e00-\u9fffa-zA-Z0-9]{2,40}(?:大道|公路|快速路|路|街|道|巷|弄)")
+_ALIAS_PROVINCE_PREFIX_RE = re.compile(r"^(?P<province>[\u4e00-\u9fff]{2,20}(?:特别行政区|自治区|省))")
+_ALIAS_CITY_RE = re.compile(r"(?P<city>[\u4e00-\u9fff]{2,20}?(?:自治州|地区|盟|市))")
+_ALIAS_DISTRICT_RE = re.compile(r"(?P<district>[\u4e00-\u9fff]{1,20}?(?:区|县|旗|市))")
 
 
 def _memory_anchor_components(components: dict[str, Any]) -> dict[str, Any]:
@@ -966,12 +1002,20 @@ def _strip_raw_detail(raw_address: str, components: dict[str, Any]) -> str | Non
     return None
 
 
-def _memory_alias_entries(raw_address: str, normalized_address: str, components: dict[str, Any]) -> list[tuple[str, str]]:
-    entries = [
-        (raw_address, "observed"),
-        (_text_or_none(components.get("name")), "name"),
-        (normalized_address, "normalized"),
-    ]
+def _memory_alias_entries(
+    raw_address: str,
+    normalized_address: str,
+    components: dict[str, Any],
+    *,
+    confirmed_by: Any = None,
+) -> list[tuple[str, str]]:
+    is_auto = str(confirmed_by or "").lower() == "auto"
+    entries = [(normalized_address, "normalized")]
+    if not is_auto or _alias_has_locator(raw_address):
+        entries.insert(0, (raw_address, "observed"))
+    if not is_auto:
+        entries.insert(1, (_text_or_none(components.get("name")), "name"))
+
     aliases: list[tuple[str, str]] = []
     seen: set[str] = set()
     for value, alias_kind in entries:
@@ -981,6 +1025,42 @@ def _memory_alias_entries(raw_address: str, normalized_address: str, components:
         seen.add(alias_text)
         aliases.append((alias_text, alias_kind))
     return aliases
+
+
+def _alias_has_locator(value: Any) -> bool:
+    alias_text = _clean_alias_text(value)
+    if not alias_text:
+        return False
+    if _has_detail_signal(alias_text):
+        return True
+    if _ALIAS_ROAD_WITH_NO_RE.search(alias_text):
+        return True
+    return _alias_has_admin_scope(alias_text) and bool(_ALIAS_ROAD_RE.search(alias_text))
+
+
+def _has_detail_signal(value: str) -> bool:
+    return bool(
+        re.search(r"\d+(?:栋|号楼|单元|楼|层|室|房|号)", value)
+        or re.search(r"\d+-\d+", value)
+    )
+
+
+def _alias_has_admin_scope(value: str) -> bool:
+    scoped_value = _strip_alias_province_prefix(value)
+    if _ALIAS_PROVINCE_PREFIX_RE.search(value) or _ALIAS_CITY_RE.search(scoped_value):
+        return True
+    for match in _ALIAS_DISTRICT_RE.finditer(scoped_value):
+        district = match.group("district")
+        if not district.endswith(("小区", "园区", "校区")):
+            return True
+    return False
+
+
+def _strip_alias_province_prefix(value: str) -> str:
+    match = _ALIAS_PROVINCE_PREFIX_RE.match(value)
+    if not match:
+        return value
+    return value[match.end() :]
 
 
 def _clean_alias_text(value: Any) -> str | None:

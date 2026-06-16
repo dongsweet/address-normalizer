@@ -69,3 +69,47 @@ def test_auto_persist_prefers_standard_hits() -> None:
     )
 
     assert _should_auto_persist(result) is True
+
+
+def test_auto_persist_rejects_name_only_standard_hit() -> None:
+    result = NormalizedAddress(
+        input="华府写字楼",
+        cleaned_input="华府写字楼",
+        normalized_address="江苏省苏州市吴中区南湖镇迎宾中大道8721号华府写字楼",
+        output_line="江苏省苏州市吴中区南湖镇迎宾中大道8721号华府写字楼",
+        components={
+            "name": "华府写字楼",
+            "city": "苏州市",
+            "district": "吴中区",
+            "town": "南湖镇",
+        },
+        anchor_type="standard",
+        anchor_id="SYN-test100k-000036",
+        source="standard",
+        confidence=0.99,
+        match_level="standard",
+    )
+
+    assert _should_auto_persist(result) is False
+
+
+def test_auto_persist_accepts_road_number_standard_hit() -> None:
+    result = NormalizedAddress(
+        input="江苏省南京市光明中路5981华府写字楼",
+        cleaned_input="江苏省南京市光明中路5981华府写字楼",
+        normalized_address="江苏省南京市玄武区金桥街道光明中路5981号华府写字楼",
+        output_line="江苏省南京市玄武区金桥街道光明中路5981号华府写字楼",
+        components={
+            "name": "华府写字楼",
+            "city": "南京市",
+            "district": "玄武区",
+            "town": "金桥街道",
+        },
+        anchor_type="standard",
+        anchor_id="SYN-test100k-000888",
+        source="standard",
+        confidence=0.99,
+        match_level="standard",
+    )
+
+    assert _should_auto_persist(result) is True
