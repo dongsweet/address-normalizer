@@ -567,6 +567,45 @@ class MultiProvincePoiStandard:
         ]
 
 
+class AmbiguousCityPoiStandard:
+    enabled = True
+
+    async def search(
+        self,
+        query: str,
+        province: str | None,
+        city: str | None,
+        district: str | None,
+        limit: int,
+    ) -> list[AddressCandidate]:
+        return [
+            AddressCandidate(
+                source="standard",
+                candidate_id="S-NJ-1",
+                name="华府写字楼",
+                full_address="江苏省南京市玄武区金桥街道光明中路5981号华府写字楼41栋-6单元-6楼-0807室",
+                province="江苏省",
+                city="南京市",
+                district="玄武区",
+                town="金桥街道",
+                score=0.0,
+                metadata={"provider": "doris", "poi": "华府写字楼"},
+            ),
+            AddressCandidate(
+                source="standard",
+                candidate_id="S-NJ-2",
+                name="华府写字楼",
+                full_address="江苏省南京市鼓楼区中央街道中山北路88号华府写字楼12栋-2单元-9楼-0901室",
+                province="江苏省",
+                city="南京市",
+                district="鼓楼区",
+                town="中央街道",
+                score=0.0,
+                metadata={"provider": "doris", "poi": "华府写字楼"},
+            ),
+        ]
+
+
 def test_unique_city_poi_can_output_anchor_without_qwen() -> None:
     agent = AddressAgent(
         Settings(
@@ -606,6 +645,30 @@ def test_unique_city_poi_release_rule_accepts_unique_city_exact_poi() -> None:
     )
 
     assert _unique_city_poi_allows_output("南京华府写字楼", candidate, [candidate]) is True
+
+
+def test_city_poi_only_does_not_fast_path_when_city_has_multiple_matches() -> None:
+    agent = AddressAgent(
+        Settings(
+            standard_address_source="doris",
+            doris_enabled=True,
+            doris_host="doris",
+            doris_database="address_normalizer",
+            doris_table="ysk_datahub_address_standed",
+            qwen_base_url=None,
+            recall_scope_mode="auto",
+        ),
+        UniqueCityPoiDb(),
+        FakeQwen(),
+        AmbiguousCityPoiStandard(),
+        FakeMgeo(),
+    )
+
+    result = asyncio.run(agent.normalize_one("南京华府写字楼", use_qwen=False))
+
+    assert result.source == "none"
+    assert result.anchor_type == "unmatched"
+    assert any("城市级行政范围+POI存在多个候选" in warning for warning in result.warnings)
 
 
 def test_province_poi_only_still_rejects_when_not_unique() -> None:

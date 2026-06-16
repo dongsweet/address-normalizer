@@ -197,6 +197,8 @@ class AddressAgent:
 
         mgeo_payload = None
         fast_path_candidate = _fast_path_candidate(ranked, self.settings)
+        if fast_path_candidate and _should_block_city_poi_output(cleaned, fast_path_candidate, ranked):
+            fast_path_candidate = None
         if fast_path_candidate:
             warnings.append("高置信候选直接命中，跳过Qwen" if mgeo_payload else "高置信候选直接命中，跳过MGeo和Qwen")
             _emit(progress, "fast_path", "高置信候选直接命中")
@@ -248,7 +250,10 @@ class AddressAgent:
             except Exception as exc:  # noqa: BLE001
                 warnings.append(f"Qwen候选选择失败: {exc}")
 
-        if selected and selected.source in {"memory", "standard"} and not has_strong_anchor_evidence(selected):
+        if selected and _should_block_city_poi_output(cleaned, selected, ranked):
+            warnings.append("城市级行政范围+POI存在多个候选，不直接输出")
+            selected = None
+        elif selected and selected.source in {"memory", "standard"} and not has_strong_anchor_evidence(selected):
             if _unique_city_poi_allows_output(cleaned, selected, ranked):
                 warnings.append("城市级行政范围+POI唯一候选，允许输出锚点")
             elif _selected_by_qwen(selected, selected_by_qwen, ranked, qwen_output) and _qwen_structured_anchor_allows_output(cleaned, selected, qwen_output, mgeo_payload):
@@ -539,17 +544,47 @@ def _unique_city_poi_allows_output(
     selected: AddressCandidate,
     ranked: list[AddressCandidate],
 ) -> bool:
-    if len(ranked) != 1:
+    matches = _city_poi_output_matches(cleaned, ranked)
+    if len(matches) != 1:
         return False
+    return _candidate_identity(matches[0]) == _candidate_identity(selected)
 
+
+def _should_block_city_poi_output(
+    cleaned: str,
+    selected: AddressCandidate,
+    ranked: list[AddressCandidate],
+) -> bool:
+    if not _is_city_poi_only_match(cleaned, selected):
+        return False
+    return len(_city_poi_output_matches(cleaned, ranked)) != 1
+
+
+def _city_poi_output_matches(
+    cleaned: str,
+    ranked: list[AddressCandidate],
+) -> list[AddressCandidate]:
+    return [candidate for candidate in ranked if _is_city_poi_only_match(cleaned, candidate)]
+
+
+def _is_city_poi_only_match(cleaned: str, candidate: AddressCandidate) -> bool:
     hint = resolve_admin_hint(cleaned)
-    if not hint.city or not _same_scope_value(hint.city, selected.city):
+    if not hint.city or hint.district:
         return False
 
-    if _candidate_conflicts(selected):
+    if _candidate_conflicts(candidate):
         return False
 
-    candidate_name = _compact_text(selected.name)
+    if _query_road_from_context(cleaned, None):
+        return False
+
+    if _parse_detail(cleaned):
+        return False
+
+    if not _same_scope_value(hint.city, candidate.city):
+        return False
+
+    candidate_name = _compact_text(candidate.name)
     query_name = _compact_text(query_without_admin_scope(cleaned))
     if not candidate_name or not query_name or candidate_name != query_name:
         return False
