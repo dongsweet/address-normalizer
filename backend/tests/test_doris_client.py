@@ -43,12 +43,14 @@ def test_doris_search_sql_uses_road_and_number_predicates() -> None:
 
     sql = client._build_search_sql(
         query="乌鲁木齐市沙依巴克区友好北路689号美美友好购物中心H&M",
+        province="新疆维吾尔自治区",
         city="乌鲁木齐市",
         district="沙依巴克区",
         limit=8,
     )
 
     assert "FROM `address_normalizer`.`ysk_datahub_address_standed`" in sql
+    assert "province=新疆维吾尔自治区/" in sql
     assert "coalesce(`road`, '') = '友好北路'" in sql
     assert "coalesce(`road_no`, '') like '%689号%'" in sql
     assert "coalesce(`city`, '') = '乌鲁木齐市'" in sql
@@ -70,6 +72,7 @@ def test_doris_search_sql_does_not_fallback_to_default_city_in_auto_mode() -> No
 
     sql = client._build_search_sql(
         query="高新乡红山西大道1532号德汇家园6栋6单元18楼3115室",
+        province=None,
         city=None,
         district=None,
         limit=8,
@@ -95,6 +98,7 @@ def test_doris_search_sql_fallbacks_to_default_city_in_fixed_mode() -> None:
 
     sql = client._build_search_sql(
         query="友好北路689号美美友好购物中心H&M",
+        province=None,
         city=None,
         district=None,
         limit=8,
@@ -118,11 +122,13 @@ def test_doris_search_sql_strips_city_prefix_from_name_hint() -> None:
 
     sql = client._build_search_sql(
         query="南京华府写字楼",
+        province="江苏省",
         city="南京市",
         district=None,
         limit=8,
     )
 
+    assert "province=江苏省/" in sql
     assert "coalesce(`city`, '') = '南京市'" in sql
     assert "%华府写字楼%" in sql
     assert "%南京华府写字楼%" not in sql

@@ -9,13 +9,22 @@ from app.schemas import AddressCandidate
 
 class FakeDb:
     def __init__(self) -> None:
+        self.last_province: str | None = None
         self.last_city: str | None = None
         self.last_district: str | None = None
 
     def search_memory(self, query: str, limit: int) -> list[AddressCandidate]:
         return []
 
-    def search_poi(self, query: str, city: str | None, district: str | None, limit: int) -> list[AddressCandidate]:
+    def search_poi(
+        self,
+        query: str,
+        province: str | None,
+        city: str | None,
+        district: str | None,
+        limit: int,
+    ) -> list[AddressCandidate]:
+        self.last_province = province
         self.last_city = city
         self.last_district = district
         return [
@@ -24,6 +33,7 @@ class FakeDb:
                 candidate_id="POI-1",
                 name="美美友好购物中心H&M",
                 full_address="新疆维吾尔自治区乌鲁木齐市沙依巴克区友好北路689号美美友好购物中心H&M",
+                province="新疆维吾尔自治区",
                 city="乌鲁木齐市",
                 district="沙依巴克区",
                 score=0.78,
@@ -35,7 +45,14 @@ class FakeDb:
 class FakeHive:
     enabled = True
 
-    async def search(self, query: str, city: str | None, district: str | None, limit: int) -> list[AddressCandidate]:
+    async def search(
+        self,
+        query: str,
+        province: str | None,
+        city: str | None,
+        district: str | None,
+        limit: int,
+    ) -> list[AddressCandidate]:
         raise RuntimeError("mock hive down")
 
 
@@ -43,20 +60,35 @@ class WeakStandardDb:
     def search_memory(self, query: str, limit: int) -> list[AddressCandidate]:
         return []
 
-    def search_poi(self, query: str, city: str | None, district: str | None, limit: int) -> list[AddressCandidate]:
+    def search_poi(
+        self,
+        query: str,
+        province: str | None,
+        city: str | None,
+        district: str | None,
+        limit: int,
+    ) -> list[AddressCandidate]:
         return []
 
 
 class WeakStandardHive:
     enabled = True
 
-    async def search(self, query: str, city: str | None, district: str | None, limit: int) -> list[AddressCandidate]:
+    async def search(
+        self,
+        query: str,
+        province: str | None,
+        city: str | None,
+        district: str | None,
+        limit: int,
+    ) -> list[AddressCandidate]:
         return [
             AddressCandidate(
                 source="standard",
                 candidate_id="HIVE-weak",
                 name="光明路北小区",
                 full_address="新疆维吾尔自治区乌鲁木齐市天山区光明路北小区18栋-1单元-2楼-8号",
+                province="新疆维吾尔自治区",
                 city="乌鲁木齐市",
                 district="天山区",
                 score=0,
@@ -101,6 +133,7 @@ def test_hive_failure_degrades_to_other_candidates() -> None:
     result = asyncio.run(agent.normalize_one("乌鲁木齐市沙依巴克区友好北路689美美友好购物中心H&M", use_qwen=False))
 
     assert result.source == "poi"
+    assert db.last_province == "新疆维吾尔自治区"
     assert db.last_city == "乌鲁木齐市"
     assert db.last_district == "沙依巴克区"
     assert any("标准地址库查询失败" in warning for warning in result.warnings)
@@ -125,6 +158,7 @@ def test_recall_scope_normalizes_common_district_aliases() -> None:
 
     asyncio.run(agent.normalize_one("沙区友好北路689号美美友好购物中心H&M，放前台", use_qwen=False))
 
+    assert db.last_province == "新疆维吾尔自治区"
     assert db.last_city == "乌鲁木齐市"
     assert db.last_district == "沙依巴克区"
 
@@ -132,6 +166,7 @@ def test_recall_scope_normalizes_common_district_aliases() -> None:
 def test_recall_scope_extracts_city_and_district_after_province() -> None:
     scope = _extract_recall_scope("河北省石家庄市长安区友好镇科技东公路9009号银泰小区")
 
+    assert scope.province == "河北省"
     assert scope.city == "石家庄市"
     assert scope.district == "长安区"
 
@@ -140,8 +175,10 @@ def test_recall_scope_extracts_city_without_city_suffix() -> None:
     suzhou_scope = _extract_recall_scope("苏州华府写字楼")
     nanjing_scope = _extract_recall_scope("南京华府写字楼")
 
+    assert suzhou_scope.province == "江苏省"
     assert suzhou_scope.city == "苏州市"
     assert suzhou_scope.district is None
+    assert nanjing_scope.province == "江苏省"
     assert nanjing_scope.city == "南京市"
     assert nanjing_scope.district is None
 
@@ -272,3 +309,60 @@ def test_weak_standard_candidate_still_rejects_even_if_qwen_selects_it() -> None
     assert result.source == "none"
     assert result.anchor_type == "unmatched"
     assert any("候选锚点证据不足" in warning for warning in result.warnings)
+
+
+class ProvinceScopeDb:
+    def search_memory(self, query: str, limit: int) -> list[AddressCandidate]:
+        return []
+
+    def search_poi(
+        self,
+        query: str,
+        province: str | None,
+        city: str | None,
+        district: str | None,
+        limit: int,
+    ) -> list[AddressCandidate]:
+        return []
+
+
+class ProvinceScopeStandard:
+    enabled = True
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str | None, str | None, str | None, int]] = []
+
+    async def search(
+        self,
+        query: str,
+        province: str | None,
+        city: str | None,
+        district: str | None,
+        limit: int,
+    ) -> list[AddressCandidate]:
+        self.calls.append((query, province, city, district, limit))
+        return []
+
+
+def test_province_scope_is_forwarded_to_standard_search() -> None:
+    standard = ProvinceScopeStandard()
+    agent = AddressAgent(
+        Settings(
+            standard_address_source="doris",
+            doris_enabled=True,
+            doris_host="doris",
+            doris_database="address_normalizer",
+            doris_table="ysk_datahub_address_standed",
+            qwen_base_url=None,
+            recall_scope_mode="auto",
+        ),
+        ProvinceScopeDb(),
+        FakeQwen(),
+        standard,
+        FakeMgeo(),
+    )
+
+    asyncio.run(agent.normalize_one("江苏华府写字楼", use_qwen=False))
+
+    assert standard.calls
+    assert any(call[1] == "江苏省" for call in standard.calls)

@@ -46,17 +46,31 @@ class DorisClient:
             return False
         return True
 
-    async def search(self, query: str, city: str | None, district: str | None = None, limit: int = 8) -> list[AddressCandidate]:
+    async def search(
+        self,
+        query: str,
+        province: str | None,
+        city: str | None,
+        district: str | None = None,
+        limit: int = 8,
+    ) -> list[AddressCandidate]:
         query = query.strip()
         if not self.enabled or not query:
             return []
-        return await asyncio.to_thread(self._search_blocking, query, city, district, limit)
+        return await asyncio.to_thread(self._search_blocking, query, province, city, district, limit)
 
-    def _search_blocking(self, query: str, city: str | None, district: str | None, limit: int) -> list[AddressCandidate]:
+    def _search_blocking(
+        self,
+        query: str,
+        province: str | None,
+        city: str | None,
+        district: str | None,
+        limit: int,
+    ) -> list[AddressCandidate]:
         if pymysql is None:
             raise RuntimeError("Doris client dependency is missing: install PyMySQL")
 
-        sql = self._build_search_sql(query=query, city=city, district=district, limit=limit)
+        sql = self._build_search_sql(query=query, province=province, city=city, district=district, limit=limit)
         try:
             connection = pymysql.connect(**self._connection_kwargs())
             try:
@@ -67,12 +81,12 @@ class DorisClient:
             finally:
                 connection.close()
         except Exception as exc:  # noqa: BLE001
-            self._log_api_call(query=query, city=city, district=district, status="error", error_message=str(exc))
+            self._log_api_call(query=query, province=province, city=city, district=district, status="error", error_message=str(exc))
             raise
 
         mapped = [map_doris_row(dict(zip(columns, row, strict=False)), table=self.settings.doris_table) for row in rows]
         candidates = [candidate for candidate in mapped if candidate is not None]
-        self._log_api_call(query=query, city=city, district=district, status="success", result_count=len(candidates))
+        self._log_api_call(query=query, province=province, city=city, district=district, status="success", result_count=len(candidates))
         return candidates
 
     def _connection_kwargs(self) -> dict[str, Any]:
@@ -88,12 +102,21 @@ class DorisClient:
             "write_timeout": int(self.settings.doris_query_timeout_seconds),
         }
 
-    def _build_search_sql(self, *, query: str, city: str | None, district: str | None, limit: int) -> str:
+    def _build_search_sql(
+        self,
+        *,
+        query: str,
+        province: str | None,
+        city: str | None,
+        district: str | None,
+        limit: int,
+    ) -> str:
         fetch_limit = max(limit, min(self.settings.doris_fetch_limit, limit * 3))
         return build_standard_search_sql(
             database=self.settings.doris_database,
             table=self.settings.doris_table,
             query=query,
+            province=province,
             city=city,
             district=district,
             default_city=self._default_city_for_search(),
@@ -104,6 +127,7 @@ class DorisClient:
         self,
         *,
         query: str,
+        province: str | None,
         city: str | None,
         district: str | None,
         status: str,
@@ -121,6 +145,7 @@ class DorisClient:
                 result_count=result_count,
                 error_message=error_message,
                 metadata={
+                    "province": province,
                     "city": city or self._default_city_for_search(),
                     "district": district,
                     "table": self.settings.doris_table,

@@ -23,7 +23,14 @@ class StandardAddressClient(Protocol):
     @property
     def enabled(self) -> bool: ...
 
-    async def search(self, query: str, city: str | None, district: str | None = None, limit: int = 8) -> list[AddressCandidate]: ...
+    async def search(
+        self,
+        query: str,
+        province: str | None,
+        city: str | None,
+        district: str | None = None,
+        limit: int = 8,
+    ) -> list[AddressCandidate]: ...
 
 
 @dataclass
@@ -40,6 +47,7 @@ class PipelineAttempt:
 
 @dataclass(frozen=True)
 class RecallScope:
+    province: str | None = None
     city: str | None = None
     district: str | None = None
 
@@ -160,6 +168,7 @@ class AddressAgent:
             candidates.extend(
                 self.db.search_poi(
                     query,
+                    recall_scope.province,
                     recall_scope.city,
                     recall_scope.district,
                     self.settings.candidate_limit * 2,
@@ -173,6 +182,7 @@ class AddressAgent:
                     candidates.extend(
                         await self.standard_client.search(
                             query,
+                            recall_scope.province,
                             recall_scope.city,
                             recall_scope.district,
                             self.settings.candidate_limit,
@@ -358,12 +368,12 @@ def _unique_texts(values: list[str]) -> list[str]:
 
 
 _DISTRICT_ALIASES = {
-    "沙区": RecallScope(city="乌鲁木齐市", district="沙依巴克区"),
-    "沙依巴克区": RecallScope(city="乌鲁木齐市", district="沙依巴克区"),
-    "水区": RecallScope(city="乌鲁木齐市", district="水磨沟区"),
-    "水磨沟区": RecallScope(city="乌鲁木齐市", district="水磨沟区"),
-    "米东": RecallScope(city="乌鲁木齐市", district="米东区"),
-    "米东区": RecallScope(city="乌鲁木齐市", district="米东区"),
+    "沙区": RecallScope(province="新疆维吾尔自治区", city="乌鲁木齐市", district="沙依巴克区"),
+    "沙依巴克区": RecallScope(province="新疆维吾尔自治区", city="乌鲁木齐市", district="沙依巴克区"),
+    "水区": RecallScope(province="新疆维吾尔自治区", city="乌鲁木齐市", district="水磨沟区"),
+    "水磨沟区": RecallScope(province="新疆维吾尔自治区", city="乌鲁木齐市", district="水磨沟区"),
+    "米东": RecallScope(province="新疆维吾尔自治区", city="乌鲁木齐市", district="米东区"),
+    "米东区": RecallScope(province="新疆维吾尔自治区", city="乌鲁木齐市", district="米东区"),
 }
 
 
@@ -376,6 +386,7 @@ def _resolve_recall_scope(raw_address: str, cleaned: str, settings: Settings) ->
     cleaned_scope = _extract_recall_scope(cleaned)
     raw_scope = _extract_recall_scope(raw_address)
     return RecallScope(
+        province=cleaned_scope.province or raw_scope.province,
         city=cleaned_scope.city or raw_scope.city,
         district=cleaned_scope.district or raw_scope.district,
     )
@@ -383,13 +394,15 @@ def _resolve_recall_scope(raw_address: str, cleaned: str, settings: Settings) ->
 
 def _extract_recall_scope(value: str) -> RecallScope:
     hint = resolve_admin_hint(value)
+    province = hint.province
     city = hint.city
     district = hint.district
     alias_scope = _district_alias_scope(district)
     if alias_scope:
+        province = province or alias_scope.province
         city = city or alias_scope.city
         district = alias_scope.district
-    return RecallScope(city=city, district=district)
+    return RecallScope(province=province, city=city, district=district)
 
 def _looks_like_address_anchor(value: str) -> bool:
     return value.endswith("小区") or value.endswith("园区") or value.endswith("校区")

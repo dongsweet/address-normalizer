@@ -46,9 +46,10 @@ def test_hive_search_sql_escapes_user_input() -> None:
         )
     )
 
-    sql = client._build_search_sql(query="友好%'路", city="乌鲁木齐市", district="沙依巴克区", limit=8)
+    sql = client._build_search_sql(query="友好%'路", province="新疆维吾尔自治区", city="乌鲁木齐市", district="沙依巴克区", limit=8)
 
     assert "FROM `default`.`ysk_datahub_address_standed`" in sql
+    assert "province=新疆维吾尔自治区/" in sql
     assert "like '%友好%''路%'" in sql
     assert "coalesce(`county`, '') = '沙依巴克区'" in sql
     assert "limit 20" in sql.lower()
@@ -68,11 +69,13 @@ def test_hive_search_sql_uses_road_and_number_predicates() -> None:
 
     sql = client._build_search_sql(
         query="乌鲁木齐市沙依巴克区友好北路689号美美友好购物中心H&M",
+        province="新疆维吾尔自治区",
         city="乌鲁木齐市",
         district="沙依巴克区",
         limit=8,
     )
 
+    assert "province=新疆维吾尔自治区/" in sql
     assert "coalesce(`road`, '') = '友好北路'" in sql
     assert "coalesce(`road_no`, '') like '%689号%'" in sql
     assert "coalesce(`road_no`, '') like '%689%'" in sql
@@ -95,6 +98,7 @@ def test_hive_search_sql_does_not_fallback_to_default_city_in_auto_mode() -> Non
 
     sql = client._build_search_sql(
         query="高新乡红山西大道1532号德汇家园6栋6单元18楼3115室",
+        province=None,
         city=None,
         district=None,
         limit=8,
@@ -119,11 +123,13 @@ def test_hive_search_sql_strips_city_prefix_from_name_hint() -> None:
 
     sql = client._build_search_sql(
         query="苏州华府写字楼",
+        province="江苏省",
         city="苏州市",
         district=None,
         limit=8,
     )
 
+    assert "province=江苏省/" in sql
     assert "coalesce(`city`, '') = '苏州市'" in sql
     assert "%华府写字楼%" in sql
     assert "%苏州华府写字楼%" not in sql

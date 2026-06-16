@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from app.admin_scope import query_without_admin_scope
+from app.admin_scope import query_without_admin_scope, resolve_admin_hint
 from app.schemas import AddressCandidate
 
 
@@ -57,6 +57,7 @@ def build_standard_search_sql(
     database: str,
     table: str,
     query: str,
+    province: str | None,
     city: str | None,
     district: str | None,
     default_city: str | None,
@@ -70,6 +71,8 @@ def build_standard_search_sql(
     if not where_clauses:
         where_clauses = [_full_text_where_clause(stripped_query)]
 
+    if province:
+        where_clauses.append(_province_where_clause(province))
     target_city = city or default_city
     if target_city:
         city_literal = string_literal(target_city)
@@ -93,6 +96,11 @@ def map_standard_row(row: dict[str, Any], *, table: str, provider: str) -> Addre
     if not candidate_id or not full_address:
         return None
 
+    part_path = _clean_text(row.get("part_path"))
+    address_hint = resolve_admin_hint(full_address)
+    province = _clean_text(row.get("province")) or _part_path_component(part_path, "province") or address_hint.province
+    city = _clean_text(row.get("city")) or _part_path_component(part_path, "city") or address_hint.city
+    district = _clean_text(row.get("county")) or _part_path_component(part_path, "county") or address_hint.district
     name = _clean_text(row.get("poi")) or _clean_text(row.get("community")) or _clean_text(row.get("road"))
     metadata = {
         key: value
@@ -117,7 +125,7 @@ def map_standard_row(row: dict[str, Any], *, table: str, provider: str) -> Addre
             "unit": _clean_text(row.get("unit")),
             "floor": _clean_text(row.get("floor")),
             "room": _clean_text(row.get("room")),
-            "part_path": _clean_text(row.get("part_path")),
+            "part_path": part_path,
         }.items()
         if value not in (None, "")
     }
@@ -126,8 +134,9 @@ def map_standard_row(row: dict[str, Any], *, table: str, provider: str) -> Addre
         candidate_id=candidate_id,
         name=name,
         full_address=full_address,
-        city=_clean_text(row.get("city")),
-        district=_clean_text(row.get("county")),
+        province=province,
+        city=city,
+        district=district,
         town=_clean_text(row.get("town")),
         score=0.0,
         evidence=f"{provider} standard-address table",
@@ -187,6 +196,18 @@ def _full_text_where_clause(query: str) -> str:
     like_query = like_literal(query)
     predicates = [f"coalesce(`{column}`, '') like '{like_query}'" for column in STANDARD_SEARCH_COLUMNS]
     return f"({' OR '.join(predicates)})"
+
+
+def _province_where_clause(province: str) -> str:
+    province_literal = string_literal(province)
+    province_prefix = f"{province_literal}%"
+    part_path_query = like_literal(f"province={province}/")
+    return (
+        "("
+        f"coalesce(`part_path`, '') like '{part_path_query}' OR "
+        f"coalesce(`stand_address`, '') like '{province_prefix}'"
+        ")"
+    )
 
 
 def _road_where_clause(road: str) -> str:
@@ -258,6 +279,17 @@ def _clean_text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _part_path_component(part_path: str | None, key: str) -> str | None:
+    if not part_path:
+        return None
+    prefix = f"{key}="
+    for item in part_path.split("/"):
+        if item.startswith(prefix):
+            value = item[len(prefix) :].strip()
+            return value or None
+    return None
 
 
 def string_literal(value: str) -> str:

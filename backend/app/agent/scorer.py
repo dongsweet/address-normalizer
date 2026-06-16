@@ -179,7 +179,9 @@ def _candidate_has_detail(candidate: AddressCandidate) -> bool:
 
 def _candidate_conflicts(raw: str, cleaned: str, candidate: AddressCandidate) -> list[str]:
     conflicts: list[str] = []
-    city, district = _extract_query_scope(cleaned or raw)
+    province, city, district = _extract_query_scope(cleaned or raw)
+    if province and candidate.province and relaxed_match_key(province) != relaxed_match_key(candidate.province):
+        conflicts.append("province")
     if city and candidate.city and relaxed_match_key(city) != relaxed_match_key(candidate.city):
         conflicts.append("city")
     if district and candidate.district and relaxed_match_key(district) != relaxed_match_key(candidate.district):
@@ -191,9 +193,9 @@ def _candidate_conflicts(raw: str, cleaned: str, candidate: AddressCandidate) ->
     return conflicts
 
 
-def _extract_query_scope(value: str) -> tuple[str | None, str | None]:
+def _extract_query_scope(value: str) -> tuple[str | None, str | None, str | None]:
     hint = resolve_admin_hint(value)
-    return hint.city, hint.district
+    return hint.province, hint.city, hint.district
 
 
 def _extract_query_road_number(value: str) -> tuple[str | None, str | None]:

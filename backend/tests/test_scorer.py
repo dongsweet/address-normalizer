@@ -158,6 +158,7 @@ def test_name_only_memory_candidate_loses_to_matching_standard_with_city_and_roa
         candidate_id="M-1",
         name="华府写字楼",
         full_address="江苏省苏州市吴中区南湖镇迎宾中大道8721号华府写字楼28栋-6单元-2楼-1924室",
+        province="江苏省",
         city="苏州市",
         district="吴中区",
         score=0.92,
@@ -168,6 +169,7 @@ def test_name_only_memory_candidate_loses_to_matching_standard_with_city_and_roa
         candidate_id="S-1",
         name="华府写字楼",
         full_address="江苏省南京市玄武区金桥街道光明中路5981号华府写字楼41栋-6单元-6楼-0807室",
+        province="江苏省",
         city="南京市",
         district="玄武区",
         score=0,
@@ -183,3 +185,35 @@ def test_name_only_memory_candidate_loses_to_matching_standard_with_city_and_roa
     assert has_strong_anchor_evidence(ranked[1]) is False
     assert "city" in ranked[1].metadata["score_features"]["conflicts"]
     assert "road_no" in ranked[1].metadata["score_features"]["conflicts"]
+
+
+def test_province_conflict_blocks_cross_province_candidates() -> None:
+    raw = "江苏华府写字楼"
+    jiangsu = AddressCandidate(
+        source="standard",
+        candidate_id="S-JS",
+        name="华府写字楼",
+        full_address="江苏省南京市玄武区金桥街道光明中路5981号华府写字楼",
+        province="江苏省",
+        city="南京市",
+        district="玄武区",
+        score=0,
+    )
+    guangdong = AddressCandidate(
+        source="standard",
+        candidate_id="S-GD",
+        name="华府写字楼",
+        full_address="广东省广州市天河区迎宾大道300号华府写字楼",
+        province="广东省",
+        city="广州市",
+        district="天河区",
+        score=0,
+    )
+
+    ranked = rank_candidates(raw, raw, [guangdong, jiangsu], 2)
+
+    assert ranked[0].candidate_id == "S-JS"
+    assert "province" not in ranked[0].metadata["score_features"]["conflicts"]
+    assert ranked[1].candidate_id == "S-GD"
+    assert "province" in ranked[1].metadata["score_features"]["conflicts"]
+    assert ranked[1].score <= 0.68

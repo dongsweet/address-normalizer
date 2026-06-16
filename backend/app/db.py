@@ -565,7 +565,14 @@ class Database:
         )
         return [AddressCandidate(**row) for row in rows]
 
-    def search_poi(self, query: str, city: str | None, district: str | None, limit: int) -> list[AddressCandidate]:
+    def search_poi(
+        self,
+        query: str,
+        province: str | None,
+        city: str | None,
+        district: str | None,
+        limit: int,
+    ) -> list[AddressCandidate]:
         rows = self._search(
             """
             SELECT
@@ -596,7 +603,8 @@ class Database:
                 ) AS metadata
             FROM poi_catalog
             WHERE
-                (CAST(%(city)s AS text) IS NULL OR city = CAST(%(city)s AS text) OR city IS NULL)
+                (CAST(%(province)s AS text) IS NULL OR province = CAST(%(province)s AS text) OR province IS NULL)
+                AND (CAST(%(city)s AS text) IS NULL OR city = CAST(%(city)s AS text) OR city IS NULL)
                 AND (CAST(%(district)s AS text) IS NULL OR district = CAST(%(district)s AS text) OR district IS NULL)
                 AND (
                     search_text %% %(query)s
@@ -608,7 +616,7 @@ class Database:
             """,
             query,
             limit,
-            extra={"city": city, "district": district},
+            extra={"province": province, "city": city, "district": district},
         )
         return [AddressCandidate(**row) for row in rows]
 
