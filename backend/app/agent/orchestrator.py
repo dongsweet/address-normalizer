@@ -251,11 +251,11 @@ class AddressAgent:
                 warnings.append(f"Qwen候选选择失败: {exc}")
 
         if selected and _should_block_city_poi_output(cleaned, selected, ranked):
-            warnings.append("城市级行政范围+POI存在多个候选，不直接输出")
+            warnings.append("行政范围+POI存在多个候选，不直接输出")
             selected = None
         elif selected and selected.source in {"memory", "standard"} and not has_strong_anchor_evidence(selected):
             if _unique_city_poi_allows_output(cleaned, selected, ranked):
-                warnings.append("城市级行政范围+POI唯一候选，允许输出锚点")
+                warnings.append("行政范围+POI唯一候选，允许输出锚点")
             elif _selected_by_qwen(selected, selected_by_qwen, ranked, qwen_output) and _qwen_structured_anchor_allows_output(cleaned, selected, qwen_output, mgeo_payload):
                 warnings.append("Qwen确认省份+道路+POI结构化锚点，允许输出候选")
             else:
@@ -569,7 +569,7 @@ def _city_poi_output_matches(
 
 def _is_city_poi_only_match(cleaned: str, candidate: AddressCandidate) -> bool:
     hint = resolve_admin_hint(cleaned)
-    if not hint.city or hint.district:
+    if not hint.city:
         return False
 
     if _candidate_conflicts(candidate):
@@ -581,7 +581,12 @@ def _is_city_poi_only_match(cleaned: str, candidate: AddressCandidate) -> bool:
     if _parse_detail(cleaned):
         return False
 
-    if not _same_scope_value(hint.city, candidate.city):
+    if hint.district:
+        if not _same_scope_value(hint.city, candidate.city):
+            return False
+        if not _same_scope_value(hint.district, candidate.district):
+            return False
+    elif not _same_scope_value(hint.city, candidate.city):
         return False
 
     candidate_name = _compact_text(candidate.name)
