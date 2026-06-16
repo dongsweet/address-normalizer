@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from app.agent.orchestrator import AddressAgent
+from app.agent.orchestrator import AddressAgent, _extract_recall_scope
 from app.config import Settings
 from app.schemas import AddressCandidate
 
@@ -119,6 +119,20 @@ def test_recall_scope_normalizes_common_district_aliases() -> None:
 
     assert db.last_city == "乌鲁木齐市"
     assert db.last_district == "沙依巴克区"
+
+
+def test_recall_scope_extracts_city_and_district_after_province() -> None:
+    scope = _extract_recall_scope("河北省石家庄市长安区友好镇科技东公路9009号银泰小区")
+
+    assert scope.city == "石家庄市"
+    assert scope.district == "长安区"
+
+
+def test_recall_scope_does_not_treat_community_as_district() -> None:
+    scope = _extract_recall_scope("光明路北小区18栋1单元2层8号")
+
+    assert scope.city is None
+    assert scope.district is None
 
 
 def test_weak_standard_candidate_rejects_without_qwen_confirmation() -> None:

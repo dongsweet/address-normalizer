@@ -356,8 +356,9 @@ def _unique_texts(values: list[str]) -> list[str]:
     return unique
 
 
-_CITY_RE = re.compile(r"(?P<city>[\u4e00-\u9fff]{2,20}(?:自治州|地区|盟|市))")
-_DISTRICT_RE = re.compile(r"(?P<district>[\u4e00-\u9fff]{1,20}(?:区|县|旗|市))")
+_PROVINCE_PREFIX_RE = re.compile(r"^(?P<province>[\u4e00-\u9fff]{2,20}(?:特别行政区|自治区|省))")
+_CITY_RE = re.compile(r"(?P<city>[\u4e00-\u9fff]{2,20}?(?:自治州|地区|盟|市))")
+_DISTRICT_RE = re.compile(r"(?P<district>[\u4e00-\u9fff]{1,20}?(?:区|县|旗|市))")
 _DISTRICT_ALIASES = {
     "沙区": RecallScope(city="乌鲁木齐市", district="沙依巴克区"),
     "沙依巴克区": RecallScope(city="乌鲁木齐市", district="沙依巴克区"),
@@ -383,10 +384,10 @@ def _resolve_recall_scope(raw_address: str, cleaned: str, settings: Settings) ->
 
 
 def _extract_recall_scope(value: str) -> RecallScope:
-    city_matches = list(_CITY_RE.finditer(value))
-    district_matches = list(_DISTRICT_RE.finditer(value))
-    city = city_matches[-1].group("city") if city_matches else None
-    district = district_matches[-1].group("district") if district_matches else None
+    scoped_value = _strip_province_prefix(value)
+    city_match = _CITY_RE.search(scoped_value)
+    city = city_match.group("city") if city_match else None
+    district = _extract_district_after_city(scoped_value, city_match)
     if city and district and district.startswith(city):
         stripped = district[len(city) :].strip()
         district = stripped or district
@@ -395,6 +396,27 @@ def _extract_recall_scope(value: str) -> RecallScope:
         city = city or alias_scope.city
         district = alias_scope.district
     return RecallScope(city=city, district=district)
+
+
+def _strip_province_prefix(value: str) -> str:
+    match = _PROVINCE_PREFIX_RE.match(value)
+    if not match:
+        return value
+    return value[match.end() :]
+
+
+def _extract_district_after_city(value: str, city_match: re.Match[str] | None) -> str | None:
+    search_value = value[city_match.end() :] if city_match else value
+    for match in _DISTRICT_RE.finditer(search_value):
+        district = match.group("district")
+        if _looks_like_address_anchor(district):
+            continue
+        return district
+    return None
+
+
+def _looks_like_address_anchor(value: str) -> bool:
+    return value.endswith("小区") or value.endswith("园区") or value.endswith("校区")
 
 
 def _district_alias_scope(value: str | None) -> RecallScope | None:
