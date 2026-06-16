@@ -199,6 +199,25 @@ CREATE TABLE IF NOT EXISTS api_call_log (
 
 CREATE INDEX IF NOT EXISTS idx_api_call_log_provider_ts ON api_call_log (provider, timestamp);
 CREATE INDEX IF NOT EXISTS idx_api_call_log_date ON api_call_log (((timestamp AT TIME ZONE 'UTC')::date));
+
+CREATE TABLE IF NOT EXISTS admin_division (
+    code TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    level INTEGER NOT NULL,
+    type TEXT NOT NULL DEFAULT '',
+    parent_code TEXT,
+    province TEXT NOT NULL,
+    city TEXT NOT NULL,
+    district TEXT NOT NULL,
+    full_path TEXT NOT NULL,
+    aliases JSONB NOT NULL DEFAULT '[]'::jsonb,
+    search_text TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_division_search_trgm ON admin_division USING GIN (search_text gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_admin_division_path ON admin_division (province, city, district);
 """
 
 AUTO_MEMORY_ALIAS_CLEANUP_SQL = """
@@ -233,6 +252,63 @@ class Database:
             conn.execute(SCHEMA_SQL)
             conn.execute(AUTO_MEMORY_ALIAS_CLEANUP_SQL)
             conn.commit()
+
+    def seed_admin_divisions(self, json_path: Path) -> int:
+        if not json_path.exists():
+            return 0
+        import json
+
+        try:
+            payload = json.loads(json_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return 0
+
+        root = payload.get("data") or {}
+        rows = _walk_admin_nodes(root, parent_code=None, province=None, city=None, path=())
+
+        if not rows:
+            return 0
+
+        with self.connection() as conn:
+            for row in rows:
+                conn.execute(
+                    """
+                    INSERT INTO admin_division (
+                        code, name, level, type, parent_code, province, city, district, full_path, aliases, search_text
+                    )
+                    VALUES (
+                        %(code)s, %(name)s, %(level)s, %(type)s, %(parent_code)s, %(province)s, %(city)s, %(district)s,
+                        %(full_path)s, %(aliases)s, %(search_text)s
+                    )
+                    ON CONFLICT (code) DO UPDATE SET
+                        name = EXCLUDED.name,
+                        level = EXCLUDED.level,
+                        type = EXCLUDED.type,
+                        parent_code = EXCLUDED.parent_code,
+                        province = EXCLUDED.province,
+                        city = EXCLUDED.city,
+                        district = EXCLUDED.district,
+                        full_path = EXCLUDED.full_path,
+                        aliases = EXCLUDED.aliases,
+                        search_text = EXCLUDED.search_text,
+                        updated_at = now()
+                    """,
+                    row,
+                )
+            conn.commit()
+        return len(rows)
+
+    def load_admin_divisions(self) -> list[dict[str, Any]]:
+        with self.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT code, name, level, type, parent_code, province, city, district, full_path, aliases
+                FROM admin_division
+                WHERE level IN (1, 2, 3)
+                ORDER BY level, code
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def seed_public_poi(self, csv_path: Path) -> int:
         if not csv_path.exists():
@@ -1109,6 +1185,107 @@ def _float_or_none(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _walk_admin_nodes(
+    node: dict[str, Any],
+    *,
+    parent_code: str | None,
+    province: str | None,
+    city: str | None,
+    path: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    code = str(node.get("code") or "").strip()
+    name = str(node.get("name") or "").strip()
+    level = int(node.get("level") or 0)
+    node_type = str(node.get("type") or "").strip()
+
+    next_province = province
+    next_city = city
+    if level == 1 and name:
+        next_province = name
+        if node_type == "直辖市":
+            next_city = name
+        else:
+            next_city = None
+    elif level == 2 and name:
+        if province:
+            next_city = name
+        elif name.endswith("市"):
+            next_province = name
+            next_city = name
+        else:
+            next_city = name
+    elif level >= 3 and name and not next_city and province:
+        next_city = province
+
+    current_path = path + ((name,) if name else ())
+    if code and name and level in (1, 2, 3):
+        aliases = _admin_aliases_for_row(name, level, node_type)
+        province_value = next_province or province or name
+        city_value = next_city or city or province_value
+        district_value = name if level >= 3 else ""
+        rows.append(
+            {
+                "code": code,
+                "name": name,
+                "level": level,
+                "type": node_type,
+                "parent_code": parent_code,
+                "province": province_value,
+                "city": city_value,
+                "district": district_value,
+                "full_path": "/".join(current_path),
+                "aliases": Jsonb(aliases),
+                "search_text": " ".join(
+                    part for part in [code, name, node_type, province_value, city_value, district_value, *aliases] if part
+                ),
+            }
+        )
+
+    for child in node.get("children") or []:
+        rows.extend(
+            _walk_admin_nodes(
+                child,
+                parent_code=code or parent_code,
+                province=next_province,
+                city=next_city,
+                path=current_path,
+            )
+        )
+    return rows
+
+
+def _admin_aliases_for_row(name: str, level: int, node_type: str) -> list[str]:
+    aliases = [name]
+    if level == 1:
+        stripped = _strip_suffix(name, ("特别行政区", "自治区", "省", "市"))
+        if stripped and stripped != name:
+            aliases.append(stripped)
+    elif level == 2:
+        stripped = _strip_suffix(name, ("自治州", "地区", "盟", "市"))
+        if stripped and stripped != name:
+            aliases.append(stripped)
+    elif level >= 3:
+        stripped = _strip_suffix(name, ("区", "县", "旗", "市"))
+        if stripped and stripped != name and len(stripped) >= 2:
+            aliases.append(stripped)
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for alias in aliases:
+        alias = alias.strip()
+        if alias and alias not in seen:
+            seen.add(alias)
+            cleaned.append(alias)
+    return cleaned
+
+
+def _strip_suffix(value: str, suffixes: tuple[str, ...]) -> str:
+    for suffix in suffixes:
+        if value.endswith(suffix) and len(value) > len(suffix):
+            return value[: -len(suffix)]
+    return value
 
 
 def _truncate(value: str | None, limit: int) -> str | None:

@@ -16,6 +16,7 @@ from app.adapters.doris_client import DorisClient
 from app.adapters.hive_client import HiveClient
 from app.adapters.mgeo_client import MGeoClient
 from app.adapters.qwen_client import QwenClient
+from app.admin_scope import set_admin_divisions
 from app.agent.orchestrator import AddressAgent
 from app.config import Settings, get_settings
 from app.db import Database
@@ -52,6 +53,9 @@ _DISTRICT_RE = re.compile(r"(?P<district>[\u4e00-\u9fff]{1,20}?(?:区|县|旗|�
 async def lifespan(_: FastAPI):
     if settings.auto_init_db:
         db.initialize()
+    if settings.auto_seed_admin_divisions:
+        db.seed_admin_divisions(settings.admin_division_file)
+    set_admin_divisions(db.load_admin_divisions())
     if settings.auto_seed_public_poi:
         db.seed_public_poi(settings.public_poi_csv)
     yield
@@ -334,6 +338,7 @@ def _input_residual(result: NormalizedAddress) -> str:
 
     residual = _strip_location_terms(residual, _location_terms_from_text(result.normalized_address))
     residual = _strip_covered_road_numbers(residual, result.normalized_address)
+    residual = _strip_covered_roads(residual, result.normalized_address)
     residual = _strip_non_anchor_terms(residual, components)
     return residual if len(residual) > 3 else ""
 
@@ -413,6 +418,17 @@ def _strip_covered_road_numbers(value: str, normalized_address: str) -> str:
         road_key = _signal_key(match.group("road"))
         road_no_digits = re.sub(r"\D", "", match.group("road_no") or "")
         if road_key and road_key in normalized_key and road_no_digits and road_no_digits in normalized_key:
+            residual = residual.replace(token, "")
+    return residual
+
+
+def _strip_covered_roads(value: str, normalized_address: str) -> str:
+    normalized_key = _signal_key(normalized_address)
+    residual = value
+    for match in list(_ROAD_RE.finditer(value)):
+        token = match.group(0)
+        road_key = _signal_key(token)
+        if road_key and road_key in normalized_key:
             residual = residual.replace(token, "")
     return residual
 

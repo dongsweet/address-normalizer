@@ -16,8 +16,10 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173"
 
     auto_init_db: bool = True
+    auto_seed_admin_divisions: bool = True
     auto_seed_public_poi: bool = True
     public_poi_csv: Path = Path("data/public_poi/urumqi_overture_poi_sample.csv")
+    admin_division_file: Path = Path("data/xzqh.txt")
 
     qwen_base_url: str | None = None
     qwen_api_key: str | None = None

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import inspect
 
-from app.db import AUTO_MEMORY_ALIAS_CLEANUP_SQL, Database, _memory_alias_entries
+from pathlib import Path
+
+from app.db import AUTO_MEMORY_ALIAS_CLEANUP_SQL, Database, _memory_alias_entries, _walk_admin_nodes
 
 
 def test_memory_upsert_casts_nullable_coordinates() -> None:
@@ -70,3 +72,44 @@ def test_search_memory_backfills_scope_from_full_address() -> None:
     assert candidates[0].province == "江苏省"
     assert candidates[0].city == "南京市"
     assert candidates[0].district == "玄武区"
+
+
+def test_admin_division_schema_is_present() -> None:
+    source = Path("backend/app/db.py").read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS admin_division" in source
+    assert "CREATE INDEX IF NOT EXISTS idx_admin_division_path" in source
+
+
+def test_walk_admin_nodes_extracts_level_3_rows() -> None:
+    root = {
+        "code": "00",
+        "name": None,
+        "level": 0,
+        "children": [
+            {
+                "code": "32",
+                "name": "江苏省",
+                "level": 1,
+                "type": "省",
+                "children": [
+                    {
+                        "code": "3201",
+                        "name": "南京市",
+                        "level": 2,
+                        "type": "地级市",
+                        "children": [
+                            {"code": "320102", "name": "玄武区", "level": 3, "type": "市辖区", "children": []}
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+    rows = _walk_admin_nodes(root, parent_code=None, province=None, city=None, path=())
+    district_row = next(row for row in rows if row["code"] == "320102")
+
+    assert district_row["province"] == "江苏省"
+    assert district_row["city"] == "南京市"
+    assert district_row["district"] == "玄武区"

@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,7 @@ _MANUAL_DISTRICT_ALIASES = {
     "水区": ("新疆维吾尔自治区", "乌鲁木齐市", "水磨沟区"),
     "米东": ("新疆维吾尔自治区", "乌鲁木齐市", "米东区"),
 }
+_DB_ADMIN_DIVISIONS: tuple[AdminDivision, ...] | None = None
 
 
 def compact_text(value: str | None) -> str:
@@ -291,10 +293,31 @@ def _is_safe_short_district_alias(value: str) -> bool:
 
 @lru_cache
 def _admin_divisions() -> tuple[AdminDivision, ...]:
+    if _DB_ADMIN_DIVISIONS:
+        return _DB_ADMIN_DIVISIONS
     loaded = _load_admin_divisions_from_file()
     if loaded:
         return loaded
     return tuple(BUILTIN_ADMIN_DIVISIONS)
+
+
+def set_admin_divisions(rows: list[dict[str, Any]] | None) -> None:
+    global _DB_ADMIN_DIVISIONS
+    if not rows:
+        _DB_ADMIN_DIVISIONS = None
+    else:
+        divisions: list[AdminDivision] = []
+        for row in rows:
+            level = int(row.get("level") or 0)
+            if level >= 3:
+                province = str(row.get("province") or "").strip()
+                city = str(row.get("city") or "").strip()
+                district = str(row.get("name") or row.get("district") or "").strip()
+                if province and city and district:
+                    divisions.append(AdminDivision(province=province, city=city, district=district))
+        _DB_ADMIN_DIVISIONS = tuple(divisions) or None
+    _admin_divisions.cache_clear()
+    _admin_aliases.cache_clear()
 
 
 def _load_admin_divisions_from_file() -> tuple[AdminDivision, ...]:

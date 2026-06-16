@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.main import _should_auto_persist, config_status
+from app.main import _auto_persist_reason, _should_auto_persist, config_status
 from app.schemas import NormalizedAddress
 
 
@@ -113,3 +113,27 @@ def test_auto_persist_accepts_road_number_standard_hit() -> None:
     )
 
     assert _should_auto_persist(result) is True
+
+
+def test_auto_persist_accepts_road_only_when_road_is_covered() -> None:
+    result = NormalizedAddress(
+        input="南京玄武区光明北公路华府写字楼",
+        cleaned_input="南京玄武区光明北公路华府写字楼",
+        normalized_address="江苏省南京市玄武区胜利镇光明北公路2313号华府写字楼",
+        output_line="江苏省南京市玄武区胜利镇光明北公路2313号华府写字楼",
+        components={
+            "province": "江苏省",
+            "city": "南京市",
+            "district": "玄武区",
+            "town": "胜利镇",
+            "name": "华府写字楼",
+        },
+        anchor_type="standard",
+        anchor_id="SYN-test100k-031289",
+        source="standard",
+        confidence=0.99,
+        match_level="standard",
+    )
+
+    assert _should_auto_persist(result) is True
+    assert _auto_persist_reason(result, enabled=True, persisted=False) == "未满足自动沉淀条件"
