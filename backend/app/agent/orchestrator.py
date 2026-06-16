@@ -249,8 +249,11 @@ class AddressAgent:
                 warnings.append(f"Qwen候选选择失败: {exc}")
 
         if selected and selected.source in {"memory", "standard"} and not has_strong_anchor_evidence(selected):
-            warnings.append("候选锚点证据不足，不直接输出")
-            selected = None
+            if selected_by_qwen and _qwen_structured_anchor_allows_output(cleaned, selected, qwen_output, mgeo_payload):
+                warnings.append("Qwen确认省份+道路+POI结构化锚点，允许输出候选")
+            else:
+                warnings.append("候选锚点证据不足，不直接输出")
+                selected = None
 
         return PipelineAttempt(
             cleaned=cleaned,
@@ -479,6 +482,78 @@ def _format_exception_chain(exc: BaseException) -> str:
         parts.append(f"{label}: {message}" if message else label)
         current = current.__cause__ or current.__context__
     return " <- ".join(parts)
+
+
+_ROAD_SCOPE_RE = re.compile(r"[\u4e00-\u9fffa-zA-Z0-9]{2,40}(?:大道|公路|快速路|路|街|道|巷|弄)")
+
+
+def _qwen_structured_anchor_allows_output(
+    cleaned: str,
+    selected: AddressCandidate,
+    qwen_output: dict[str, Any] | None,
+    mgeo_payload: dict[str, Any] | None,
+) -> bool:
+    if not qwen_output:
+        return False
+    if _model_confidence(qwen_output, 0.0) < 0.8:
+        return False
+
+    scope = resolve_admin_hint(cleaned)
+    if not scope.province or not _same_scope_value(scope.province, selected.province):
+        return False
+
+    if _candidate_conflicts(selected):
+        return False
+
+    candidate_name = _compact_text(selected.name)
+    if not candidate_name or candidate_name not in _compact_text(cleaned):
+        return False
+
+    query_road = _query_road_from_context(cleaned, mgeo_payload)
+    candidate_road = _candidate_road(selected)
+    if not query_road or not candidate_road:
+        return False
+    return _identity_text(query_road) == _identity_text(candidate_road)
+
+
+def _query_road_from_context(cleaned: str, mgeo_payload: dict[str, Any] | None) -> str | None:
+    components = ((mgeo_payload or {}).get("components") or {})
+    road_items = components.get("road")
+    if isinstance(road_items, list):
+        for item in road_items:
+            road = str(item or "").strip()
+            if road:
+                return road
+
+    compact = _compact_text(cleaned)
+    matches = list(_ROAD_SCOPE_RE.finditer(compact))
+    if not matches:
+        return None
+    return matches[-1].group(0)
+
+
+def _candidate_road(selected: AddressCandidate) -> str | None:
+    metadata = selected.metadata or {}
+    road = str(metadata.get("road") or "").strip()
+    if road:
+        return road
+    match = _ROAD_SCOPE_RE.search(_compact_text(selected.full_address))
+    if not match:
+        return None
+    return match.group(0)
+
+
+def _candidate_conflicts(selected: AddressCandidate) -> list[str]:
+    metadata = selected.metadata or {}
+    score_features = metadata.get("score_features") or {}
+    conflicts = score_features.get("conflicts") or []
+    if isinstance(conflicts, list):
+        return [str(item) for item in conflicts]
+    return []
+
+
+def _same_scope_value(left: str | None, right: str | None) -> bool:
+    return bool(left and right and _identity_text(left) == _identity_text(right))
 
 
 _BUILDING_TOKEN = r"[A-Za-z0-9一二三四五六七八九十百千万零〇两]+"

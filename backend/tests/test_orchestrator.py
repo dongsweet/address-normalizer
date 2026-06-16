@@ -110,8 +110,35 @@ class SelectingQwen:
         return {"selected_index": 0, "confidence": 0.92, "match_level": "standard", "reason": "pick top"}
 
 
+class StructuredAnchorQwen:
+    async def repair_cleaned_address(self, raw: str, cleaned: str) -> None:
+        return None
+
+    async def choose_candidate(self, raw: str, cleaned: str, candidates: list[AddressCandidate], mgeo_payload=None) -> dict:
+        return {
+            "selected_index": 0,
+            "confidence": 0.85,
+            "match_level": "poi",
+            "reason": "省份、道路和POI均匹配",
+            "normalized_address": candidates[0].full_address,
+        }
+
+
 class FakeMgeo:
     enabled = False
+
+
+class StructuredMgeo:
+    enabled = True
+
+    async def parse(self, cleaned: str) -> dict:
+        return {
+            "components": {
+                "prov": ["江苏"],
+                "road": ["长江中公路"],
+                "poi": ["华府写字楼"],
+            }
+        }
 
 
 def test_hive_failure_degrades_to_other_candidates() -> None:
@@ -366,3 +393,80 @@ def test_province_scope_is_forwarded_to_standard_search() -> None:
 
     assert standard.calls
     assert any(call[1] == "江苏省" for call in standard.calls)
+
+
+class StructuredAnchorDb:
+    def search_memory(self, query: str, limit: int) -> list[AddressCandidate]:
+        return []
+
+    def search_poi(
+        self,
+        query: str,
+        province: str | None,
+        city: str | None,
+        district: str | None,
+        limit: int,
+    ) -> list[AddressCandidate]:
+        return []
+
+
+class StructuredAnchorStandard:
+    enabled = True
+
+    async def search(
+        self,
+        query: str,
+        province: str | None,
+        city: str | None,
+        district: str | None,
+        limit: int,
+    ) -> list[AddressCandidate]:
+        return [
+            AddressCandidate(
+                source="standard",
+                candidate_id="SYN-test100k-021862",
+                name="华府写字楼",
+                full_address="江苏省苏州市姑苏区金桥乡长江中公路8670号华府写字楼8栋-3单元-1楼-1904室",
+                province="江苏省",
+                city="苏州市",
+                district="姑苏区",
+                town="金桥乡",
+                score=0.0,
+                metadata={
+                    "provider": "doris",
+                    "road": "长江中公路",
+                    "road_no": "8670号",
+                    "poi": "华府写字楼",
+                    "building": "8栋",
+                    "unit": "3单元",
+                    "floor": "1楼",
+                    "room": "1904室",
+                },
+            )
+        ]
+
+
+def test_qwen_can_release_structured_anchor_without_fast_path() -> None:
+    agent = AddressAgent(
+        Settings(
+            standard_address_source="doris",
+            doris_enabled=True,
+            doris_host="doris",
+            doris_database="address_normalizer",
+            doris_table="ysk_datahub_address_standed",
+            qwen_base_url="http://qwen.test",
+            qwen_model="qwen-test",
+            recall_scope_mode="auto",
+        ),
+        StructuredAnchorDb(),
+        StructuredAnchorQwen(),
+        StructuredAnchorStandard(),
+        StructuredMgeo(),
+    )
+
+    result = asyncio.run(agent.normalize_one("江苏长江中公路华府写字楼", use_qwen=True))
+
+    assert result.source == "standard"
+    assert result.anchor_type == "standard"
+    assert result.normalized_address == "江苏省苏州市姑苏区金桥乡长江中公路8670号华府写字楼"
+    assert any("Qwen确认省份+道路+POI结构化锚点" in warning for warning in result.warnings)
