@@ -688,13 +688,13 @@ def _merge_input_detail(base_address: str, detail: dict[str, str]) -> str:
     if not address_detail:
         return base_address
 
-    base_anchor, base_detail = _split_input_detail(base_address)
-    if base_detail and _details_overlap(base_detail, detail):
-        return f"{base_anchor}{address_detail}"
-
     base_key = _identity_text(base_address)
     if _identity_text(address_detail) in base_key:
         return base_address
+
+    base_anchor, base_detail = _split_input_detail(base_address)
+    if base_detail and _details_overlap(base_detail, detail):
+        return f"{base_anchor}{address_detail}"
 
     remaining_parts = [
         part

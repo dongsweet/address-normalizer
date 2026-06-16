@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from app.agent.orchestrator import AddressAgent, _extract_recall_scope
+from app.agent.orchestrator import AddressAgent, _extract_recall_scope, _merge_input_detail
 from app.config import Settings
 from app.schemas import AddressCandidate
 
@@ -133,6 +133,19 @@ def test_recall_scope_does_not_treat_community_as_district() -> None:
 
     assert scope.city is None
     assert scope.district is None
+
+
+def test_merge_input_detail_does_not_duplicate_existing_full_detail() -> None:
+    base_address = "河北省石家庄市长安区友好镇科技东公路9009号银泰小区1栋-6单元-10楼-2813室"
+    detail = {
+        "building": "1栋",
+        "unit": "6单元",
+        "floor": "10楼",
+        "room": "2813室",
+        "address_detail": "1栋-6单元-10楼-2813室",
+    }
+
+    assert _merge_input_detail(base_address, detail) == base_address
 
 
 def test_weak_standard_candidate_rejects_without_qwen_confirmation() -> None:
