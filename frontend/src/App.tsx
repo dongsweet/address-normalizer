@@ -203,15 +203,15 @@ export function App() {
       <header className="topbar">
         <div>
           <h1>地址规范化工作台</h1>
-          <div className="subtle">多城市 · Hive标准地址库 · 记忆沉淀</div>
+          <div className="subtle">多城市 · 标准地址库 · 记忆沉淀</div>
         </div>
         <div className="statusRow">
           <StatusPill label="POI" value={status ? (status.poi_rows > 0 ? "present" : "missing") : "unknown"} />
           <StatusPill label="记忆" value={status ? `${status.memory_rows}` : "0"} />
           <StatusPill label="别名" value={status ? `${status.memory_alias_rows}` : "0"} />
           <StatusPill label="明细" value={status ? `${status.memory_detail_rows}` : "0"} />
-          <StatusPill label="Hive连接" value={status?.hive ?? "disabled"} />
-          <StatusPill label="今日Hive" value={status ? `${status.hive_calls_today}` : "0"} />
+          <StatusPill label={`${standardSourceLabel(status?.standard_source)}连接`} value={status?.standard ?? "disabled"} />
+          <StatusPill label="今日标准库" value={status ? `${status.standard_calls_today}` : "0"} />
           <StatusPill label="今日Qwen" value={status ? `${status.qwen_calls_today}` : "0"} />
           <a className="textButton guideLink" href="/flow.html">
             <FileJson size={18} />
@@ -444,7 +444,7 @@ function StageHelp() {
   ];
   const items = [
     ["召回", "库内候选"],
-    ["Hive", "标准地址库召回"],
+    ["标准库", "标准地址库召回"],
     ["MGeo", "地址要素拆分"],
     ["修复", "Qwen修复清洗结果"],
     ["Qwen", "候选择优/拒识"],
@@ -541,6 +541,14 @@ function statusDisplayValue(value: string) {
     ok: "正常"
   };
   return labels[value] ?? value;
+}
+
+function standardSourceLabel(source?: string) {
+  const labels: Record<string, string> = {
+    doris: "Doris",
+    hive: "Hive"
+  };
+  return labels[source ?? ""] ?? "标准库";
 }
 
 function TabButton({
@@ -642,7 +650,8 @@ function stageLabel(stage: string) {
     start: "开始",
     clean: "清洗",
     recall: "召回",
-    hive: "Hive",
+    hive: "标准库",
+    standard: "标准库",
     rank: "排序",
     mgeo: "MGeo",
     repair: "修复",

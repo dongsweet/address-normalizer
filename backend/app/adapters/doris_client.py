@@ -8,16 +8,16 @@ from app.config import Settings
 from app.schemas import AddressCandidate
 
 try:
-    from impala.dbapi import connect as hive_connect
+    import pymysql
 except ImportError:  # pragma: no cover - exercised in integration environments
-    hive_connect = None
+    pymysql = None
 
 if TYPE_CHECKING:
     from app.db import Database
 
 
-class HiveClient:
-    provider = "hive"
+class DorisClient:
+    provider = "doris"
 
     def __init__(self, settings: Settings, db: Database | None = None) -> None:
         self.settings = settings
@@ -25,21 +25,21 @@ class HiveClient:
 
     @property
     def enabled(self) -> bool:
-        return self.settings.hive_configured
+        return self.settings.doris_configured
 
     @property
     def table_name(self) -> str | None:
-        return self.settings.hive_table if self.enabled else None
+        return self.settings.doris_table if self.enabled else None
 
     def check_connection(self) -> bool:
-        if not self.enabled or hive_connect is None:
+        if not self.enabled or pymysql is None:
             return False
         try:
-            connection = hive_connect(**self._connection_kwargs())
+            connection = pymysql.connect(**self._connection_kwargs())
             try:
-                cursor = connection.cursor()
-                cursor.execute("SHOW TABLES")
-                cursor.fetchall()
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT 1")
+                    cursor.fetchall()
             finally:
                 connection.close()
         except Exception:  # noqa: BLE001
@@ -53,48 +53,46 @@ class HiveClient:
         return await asyncio.to_thread(self._search_blocking, query, city, district, limit)
 
     def _search_blocking(self, query: str, city: str | None, district: str | None, limit: int) -> list[AddressCandidate]:
-        if hive_connect is None:
-            raise RuntimeError("Hive client dependency is missing: install impyla")
+        if pymysql is None:
+            raise RuntimeError("Doris client dependency is missing: install PyMySQL")
 
-        fetch_limit = max(limit, min(self.settings.hive_fetch_limit, limit * 3))
         sql = self._build_search_sql(query=query, city=city, district=district, limit=limit)
         try:
-            connection = hive_connect(**self._connection_kwargs())
+            connection = pymysql.connect(**self._connection_kwargs())
             try:
-                cursor = connection.cursor()
-                cursor.execute(sql)
-                columns = [column[0] for column in cursor.description or []]
-                rows = cursor.fetchall()
+                with connection.cursor() as cursor:
+                    cursor.execute(sql)
+                    columns = [column[0] for column in cursor.description or []]
+                    rows = cursor.fetchall()
             finally:
                 connection.close()
         except Exception as exc:  # noqa: BLE001
             self._log_api_call(query=query, city=city, district=district, status="error", error_message=str(exc))
             raise
 
-        mapped = [map_hive_row(dict(zip(columns, row, strict=False)), table=self.settings.hive_table) for row in rows]
+        mapped = [map_doris_row(dict(zip(columns, row, strict=False)), table=self.settings.doris_table) for row in rows]
         candidates = [candidate for candidate in mapped if candidate is not None]
         self._log_api_call(query=query, city=city, district=district, status="success", result_count=len(candidates))
-        return candidates[:fetch_limit]
+        return candidates
 
     def _connection_kwargs(self) -> dict[str, Any]:
-        kwargs: dict[str, Any] = {
-            "host": self.settings.hive_host,
-            "port": self.settings.hive_port,
-            "database": self.settings.hive_database,
-            "auth_mechanism": self.settings.hive_auth_mechanism,
-            "timeout": self.settings.hive_query_timeout_seconds,
+        return {
+            "host": self.settings.doris_host,
+            "port": self.settings.doris_port,
+            "user": self.settings.doris_username,
+            "password": self.settings.doris_password or "",
+            "database": self.settings.doris_database,
+            "charset": "utf8mb4",
+            "connect_timeout": int(self.settings.doris_query_timeout_seconds),
+            "read_timeout": int(self.settings.doris_query_timeout_seconds),
+            "write_timeout": int(self.settings.doris_query_timeout_seconds),
         }
-        if self.settings.hive_username:
-            kwargs["user"] = self.settings.hive_username
-        if self.settings.hive_password:
-            kwargs["password"] = self.settings.hive_password
-        return kwargs
 
     def _build_search_sql(self, *, query: str, city: str | None, district: str | None, limit: int) -> str:
-        fetch_limit = max(limit, min(self.settings.hive_fetch_limit, limit * 3))
+        fetch_limit = max(limit, min(self.settings.doris_fetch_limit, limit * 3))
         return build_standard_search_sql(
-            database=self.settings.hive_database,
-            table=self.settings.hive_table,
+            database=self.settings.doris_database,
+            table=self.settings.doris_table,
             query=query,
             city=city,
             district=district,
@@ -125,12 +123,12 @@ class HiveClient:
                 metadata={
                     "city": city or self.settings.default_city,
                     "district": district,
-                    "table": self.settings.hive_table,
+                    "table": self.settings.doris_table,
                 },
             )
         except Exception:  # noqa: BLE001
             return
 
 
-def map_hive_row(row: dict[str, Any], *, table: str) -> AddressCandidate | None:
-    return map_standard_row(row, table=table, provider="hive")
+def map_doris_row(row: dict[str, Any], *, table: str) -> AddressCandidate | None:
+    return map_standard_row(row, table=table, provider="doris")

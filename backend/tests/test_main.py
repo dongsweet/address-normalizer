@@ -14,29 +14,33 @@ class FakeDb:
         }
 
     def get_api_call_count(self, provider: str, start_date: str, end_date: str) -> int:
-        return {"hive": 7, "qwen": 4}.get(provider, 0)
+        return {"doris": 9, "hive": 7, "qwen": 4}.get(provider, 0)
 
 
-class FakeHive:
+class FakeStandardClient:
+    provider = "doris"
+    enabled = True
+    table_name = "ysk_datahub_address_standed"
+
     def check_connection(self) -> bool:
         return True
 
 
-def test_config_status_reports_hive_fields(monkeypatch) -> None:
+def test_config_status_reports_standard_source_fields(monkeypatch) -> None:
     import app.main as main
 
     monkeypatch.setattr(main, "db", FakeDb())
-    monkeypatch.setattr(main, "hive", FakeHive())
-    monkeypatch.setattr(main.settings, "hive_enabled", True)
-    monkeypatch.setattr(main.settings, "hive_host", "hive")
-    monkeypatch.setattr(main.settings, "hive_database", "default")
-    monkeypatch.setattr(main.settings, "hive_table", "ysk_datahub_address_standed")
+    monkeypatch.setattr(main, "standard_client", FakeStandardClient())
+    monkeypatch.setattr(main.settings, "standard_address_source", "doris")
 
     status = config_status()
 
-    assert status.hive == "connected"
+    assert status.standard == "connected"
+    assert status.standard_source == "doris"
+    assert status.standard_table == "ysk_datahub_address_standed"
+    assert status.standard_calls_today == 9
+    assert status.hive == "disabled"
     assert status.recall_scope_mode == main.settings.recall_scope_mode
-    assert status.hive_table == "ysk_datahub_address_standed"
     assert status.hive_calls_today == 7
     assert status.qwen_calls_today == 4
 

@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import StreamingResponse
 
+from app.adapters.doris_client import DorisClient
 from app.adapters.hive_client import HiveClient
 from app.adapters.mgeo_client import MGeoClient
 from app.adapters.qwen_client import QwenClient
@@ -31,9 +32,9 @@ from app.schemas import (
 settings: Settings = get_settings()
 db = Database(settings.database_url)
 qwen = QwenClient(settings, db)
-hive = HiveClient(settings, db)
+standard_client = DorisClient(settings, db) if settings.standard_address_source == "doris" else HiveClient(settings, db)
 mgeo = MGeoClient(settings.mgeo_url, settings.mgeo_enabled, settings.mgeo_timeout_seconds)
-agent = AddressAgent(settings, db, qwen, hive, mgeo)
+agent = AddressAgent(settings, db, qwen, standard_client, mgeo)
 AUTO_PERSIST_WARNING = "已自动沉淀到记忆库"
 AUTO_PERSIST_SOURCES = {"standard"}
 STANDARD_AUTO_PERSIST_MIN_CONFIDENCE = 0.95
@@ -66,24 +67,30 @@ def health() -> dict[str, str]:
 @app.get("/api/config/status", response_model=ConfigStatus)
 def config_status() -> ConfigStatus:
     today = datetime.now(UTC).date().isoformat()
-    hive_state = "disabled"
+    standard_state = "disabled"
+    standard_provider = settings.standard_address_source
     try:
         status = db.status()
+        standard_calls_today = db.get_api_call_count(standard_provider, today, today)
         hive_calls_today = db.get_api_call_count("hive", today, today)
         qwen_calls_today = db.get_api_call_count("qwen", today, today)
         database_state = "configured"
     except Exception:  # noqa: BLE001
         status = {"poi_rows": 0, "memory_rows": 0, "memory_alias_rows": 0, "memory_detail_rows": 0, "standard_rows": 0}
+        standard_calls_today = 0
         hive_calls_today = 0
         qwen_calls_today = 0
         database_state = "unavailable"
-    if settings.hive_configured:
-        hive_state = "connected" if hive.check_connection() else "disconnected"
+    if standard_client.enabled:
+        standard_state = "connected" if standard_client.check_connection() else "disconnected"
     return ConfigStatus(
         database=database_state,
         qwen="configured" if settings.qwen_configured else "disabled",
         mgeo="configured" if mgeo.enabled else "disabled",
-        hive=hive_state,
+        standard=standard_state,
+        standard_source=standard_provider,
+        standard_table=standard_client.table_name,
+        hive=standard_state if standard_provider == "hive" else "disabled",
         recall_scope_mode=settings.recall_scope_mode,
         hive_table=settings.hive_table if settings.hive_configured else None,
         poi_rows=status.get("poi_rows", 0),
@@ -91,6 +98,7 @@ def config_status() -> ConfigStatus:
         memory_alias_rows=status.get("memory_alias_rows", 0),
         memory_detail_rows=status.get("memory_detail_rows", 0),
         default_city=settings.default_city,
+        standard_calls_today=standard_calls_today,
         hive_calls_today=hive_calls_today,
         qwen_calls_today=qwen_calls_today,
     )

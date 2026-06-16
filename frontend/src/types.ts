@@ -101,6 +101,9 @@ export interface ConfigStatus {
   database: string;
   qwen: string;
   mgeo: string;
+  standard: string;
+  standard_source: string;
+  standard_table?: string | null;
   hive: string;
   recall_scope_mode: string;
   hive_table?: string | null;
@@ -109,6 +112,7 @@ export interface ConfigStatus {
   memory_alias_rows: number;
   memory_detail_rows: number;
   default_city?: string | null;
+  standard_calls_today: number;
   hive_calls_today: number;
   qwen_calls_today: number;
 }

@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     cleaning_repair_enabled: bool = True
     cleaning_repair_min_score: float = 0.86
 
+    standard_address_source: Literal["hive", "doris"] = "hive"
+
     hive_enabled: bool = False
     hive_host: str | None = None
     hive_port: int = 10000
@@ -36,6 +38,16 @@ class Settings(BaseSettings):
     hive_auth_mechanism: str = "PLAIN"
     hive_query_timeout_seconds: float = 8.0
     hive_fetch_limit: int = 20
+
+    doris_enabled: bool = False
+    doris_host: str | None = None
+    doris_port: int = 9030
+    doris_database: str = "address_normalizer"
+    doris_table: str = "ysk_datahub_address_standed"
+    doris_username: str = "root"
+    doris_password: str | None = None
+    doris_query_timeout_seconds: float = 8.0
+    doris_fetch_limit: int = 20
 
     mgeo_enabled: bool = False
     mgeo_url: str | None = None
@@ -66,7 +78,23 @@ class Settings(BaseSettings):
 
     @property
     def hive_configured(self) -> bool:
-        return bool(self.hive_enabled and self.hive_host and self.hive_table and self.hive_database)
+        return bool(
+            self.standard_address_source == "hive"
+            and self.hive_enabled
+            and self.hive_host
+            and self.hive_table
+            and self.hive_database
+        )
+
+    @property
+    def doris_configured(self) -> bool:
+        return bool(
+            self.standard_address_source == "doris"
+            and self.doris_enabled
+            and self.doris_host
+            and self.doris_table
+            and self.doris_database
+        )
 
 
 @lru_cache

@@ -1,0 +1,48 @@
+services:
+  doris-fe:
+    image: apache/doris:fe-${DORIS_VERSION:-2.1.8}
+    container_name: address-normalizer-doris-fe
+    hostname: doris-fe
+    environment:
+      FE_SERVERS: fe1:doris-fe:9010
+      FE_ID: 1
+    ports:
+      - "8030:8030"
+      - "9030:9030"
+      - "9010:9010"
+    volumes:
+      - doris_fe_meta:/opt/apache-doris/fe/doris-meta
+      - doris_fe_log:/opt/apache-doris/fe/log
+
+  doris-be:
+    image: apache/doris:be-${DORIS_VERSION:-2.1.8}
+    container_name: address-normalizer-doris-be
+    hostname: doris-be
+    environment:
+      FE_SERVERS: fe1:doris-fe:9010
+      BE_ADDR: doris-be:9050
+    ports:
+      - "8040:8040"
+      - "9050:9050"
+    volumes:
+      - doris_be_storage:/opt/apache-doris/be/storage
+      - doris_be_log:/opt/apache-doris/be/log
+    depends_on:
+      - doris-fe
+
+  api:
+    environment:
+      STANDARD_ADDRESS_SOURCE: doris
+      DORIS_ENABLED: "true"
+      DORIS_HOST: doris-fe
+      DORIS_PORT: 9030
+      DORIS_DATABASE: address_normalizer
+      DORIS_TABLE: ysk_datahub_address_standed
+      DORIS_USERNAME: root
+      DORIS_PASSWORD: ""
+
+volumes:
+  doris_fe_meta:
+  doris_fe_log:
+  doris_be_storage:
+  doris_be_log:

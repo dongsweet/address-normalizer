@@ -3,9 +3,8 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
-from app.adapters.hive_client import HiveClient
 from app.adapters.mgeo_client import MGeoClient
 from app.adapters.qwen_client import QwenClient
 from app.agent.cleaner import clean_address
@@ -15,6 +14,15 @@ from app.db import Database
 from app.schemas import AddressCandidate, NormalizedAddress
 
 ProgressCallback = Callable[[str, str], None]
+
+
+class StandardAddressClient(Protocol):
+    provider: str
+
+    @property
+    def enabled(self) -> bool: ...
+
+    async def search(self, query: str, city: str | None, district: str | None = None, limit: int = 8) -> list[AddressCandidate]: ...
 
 
 @dataclass
@@ -41,13 +49,13 @@ class AddressAgent:
         settings: Settings,
         db: Database,
         qwen: QwenClient,
-        hive: HiveClient,
+        standard_client: StandardAddressClient,
         mgeo: MGeoClient,
     ) -> None:
         self.settings = settings
         self.db = db
         self.qwen = qwen
-        self.hive = hive
+        self.standard_client = standard_client
         self.mgeo = mgeo
 
     async def normalize_one(
@@ -157,12 +165,12 @@ class AddressAgent:
                 )
             )
 
-        if self.hive.enabled:
-            _emit(progress, "hive", "查询标准地址库")
+        if self.standard_client.enabled:
+            _emit(progress, "standard", "查询标准地址库")
             for query in recall_queries:
                 try:
                     candidates.extend(
-                        await self.hive.search(
+                        await self.standard_client.search(
                             query,
                             recall_scope.city,
                             recall_scope.district,

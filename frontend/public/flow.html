@@ -329,12 +329,12 @@
           <div class="eyebrow">公安内网适配版</div>
           <h1>把模糊地址对齐到标准地址库，再让模型只做最后判断</h1>
           <p class="lead">
-            这版不再依赖外部地图 API。系统先清洗输入，查记忆库、本地 POI 和 Hive 标准地址表，再把已有候选交给
+            这版不再依赖外部地图 API。系统先清洗输入，查记忆库、本地 POI 和标准地址库，再把已有候选交给
             Qwen 选择或拒识，避免模型凭空编地址。
           </p>
           <div class="tags">
             <span class="tag">顶部只看关键业务状态</span>
-            <span class="tag">Hive 连接状态实时探测</span>
+            <span class="tag">标准库连接状态实时探测</span>
             <span class="tag">记忆库自动沉淀</span>
             <span class="tag">召回范围可固定 / 自动 / 关闭</span>
           </div>
@@ -367,19 +367,19 @@
             <p>直接给业务沉淀规模。比起数据库是否配置，更重要的是已经积累了多少可复用经验。</p>
           </div>
           <div class="statusCard">
-            <b>Hive连接</b>
-            <p>显示的不是“写没写配置”，而是当前是否真的能连上 Hive 标准地址库，更适合联调和运维排查。</p>
+            <b>标准库连接</b>
+            <p>显示的不是“写没写配置”，而是当前是否真的能连上 Doris 或兼容标准地址库，更适合联调和运维排查。</p>
           </div>
           <div class="statusCard">
             <b>今日统计</b>
-            <p>只保留今日 Hive 调用次数和今日 Qwen 调用次数，方便同时观察标准库命中活跃度和模型消耗。</p>
+            <p>只保留今日标准库调用次数和今日 Qwen 调用次数，方便同时观察标准库命中活跃度和模型消耗。</p>
           </div>
         </div>
         <div class="statusPair">
           <b>这次调整后的取舍</b>
           <div class="statusPairRow">
             <span>保留</span>
-            <span>POI 是否存在、记忆规模、Hive 是否连通、今日调用量、方案讲解入口。</span>
+            <span>POI 是否存在、记忆规模、标准库是否连通、今日调用量、方案讲解入口。</span>
           </div>
           <div class="statusPairRow">
             <span>不置顶</span>
@@ -408,8 +408,8 @@
           </div>
           <div class="step">
             <span class="num">4</span>
-            <h3>Hive 标准库</h3>
-            <p>再直查 HiveServer2 标准地址表，把标准地址映射成候选并参与统一排序。</p>
+            <h3>标准地址库</h3>
+            <p>再直查 Doris 或兼容标准地址表，把标准地址映射成候选并参与统一排序。</p>
           </div>
           <div class="step">
             <span class="num">5</span>
@@ -428,8 +428,8 @@
       <section class="panel">
         <div class="grid">
           <div class="card emphasis">
-            <h3>Hive 标准地址库</h3>
-            <p>当前最重要的数据源。进入内网后，只要替换连接地址、用户名、密码和表名即可切到真实环境。</p>
+            <h3>Doris 标准地址库</h3>
+            <p>当前最重要的数据源。进入内网后，只要替换 Doris FE 地址、用户名、密码和表名即可切到真实环境。</p>
           </div>
           <div class="card">
             <h3>业务记忆库</h3>
@@ -468,7 +468,7 @@
         </div>
       </section>
 
-      <h2 id="hive" class="sectionTitle">模拟 Hive 表结构</h2>
+      <h2 id="standard-table" class="sectionTitle">标准地址表结构</h2>
       <section class="panel">
         <table>
           <thead>
@@ -508,7 +508,7 @@
         </table>
       </section>
 
-      <h2 class="sectionTitle">模拟环境里我们验证什么</h2>
+      <h2 class="sectionTitle">测试环境里我们验证什么</h2>
       <section class="panel">
         <div class="grid">
           <div class="card">
@@ -525,7 +525,7 @@
           </div>
           <div class="card">
             <h3>服务不可达时降级</h3>
-            <p>确认 Hive 失败时流程不会整体报废，而是继续走记忆库、POI 和模型兜底。</p>
+            <p>确认标准库失败时流程不会整体报废，而是继续走记忆库、POI 和模型兜底。</p>
           </div>
         </div>
       </section>
@@ -547,7 +547,7 @@
   },
   "warnings": ["已自动沉淀到记忆库"]
 }</pre>
-        <p class="footer">这个页面对应当前仓库的 Hive 模拟版方案，已经同步到“精简顶部状态 + 多城市自动范围”的现行实现。</p>
+        <p class="footer">这个页面对应当前仓库的 Doris-first 标准库方案，已经同步到“精简顶部状态 + 多城市自动范围”的现行实现。</p>
       </section>
     </main>
   </body>

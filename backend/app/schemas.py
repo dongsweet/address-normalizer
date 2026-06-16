@@ -70,6 +70,9 @@ class ConfigStatus(BaseModel):
     database: str
     qwen: str
     mgeo: str
+    standard: str = "disabled"
+    standard_source: str = "hive"
+    standard_table: str | None = None
     hive: str
     recall_scope_mode: str
     hive_table: str | None = None
@@ -78,6 +81,7 @@ class ConfigStatus(BaseModel):
     memory_alias_rows: int = 0
     memory_detail_rows: int = 0
     default_city: str | None = None
+    standard_calls_today: int = 0
     hive_calls_today: int = 0
     qwen_calls_today: int = 0
 
